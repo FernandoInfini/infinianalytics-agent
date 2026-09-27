@@ -36,7 +36,7 @@ services:
       # dominates the walk time — set it here to trim the walk.
       KANSHI_STORAGE_EXCLUDE: "${KANSHI_STORAGE_EXCLUDE:-}"
       # Share of one core, in percent, the walk may average. 100 = unthrottled.
-      KANSHI_STORAGE_CPU: "${KANSHI_STORAGE_CPU:-25}"
+      KANSHI_STORAGE_CPU: "${KANSHI_STORAGE_CPU:-10}"
       KANSHI_TREE_DEPTH: "${KANSHI_TREE_DEPTH:-4}"
 
       # Give the GC a budget below mem_limit so a walk on an unusually large

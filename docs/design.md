@@ -124,8 +124,8 @@ once by file ID; elsewhere hard links are rare enough that tracking every ID wou
 the lowest best-effort I/O class on Linux, or in `THREAD_MODE_BACKGROUND` on Windows (which lowers CPU, I/O and
 memory priority together). Both are per-thread settings, and the runtime retires that thread when the walk ends
 rather than handing it to the poller. Low priority only matters when something else wants the CPU, so the walk
-also measures its own thread's CPU time and sleeps between directories to average `KANSHI_STORAGE_CPU` (25% of one
-core by default). Time spent waiting on the disk counts as idle.
+also measures the process's CPU time (its garbage collection included) and sleeps between directories to average
+`KANSHI_STORAGE_CPU` (10% of one core by default). Time spent waiting on the disk counts as idle.
 
 **Unreadable directories are reported, not hidden.** If the walk cannot enter a directory it is counted and the
 storage card says so — a silently truncated tree that under-reports by 300 GB is worse than an obviously incomplete

@@ -119,7 +119,7 @@ func Load(flags Flags) Config {
 		StorageInterval:   l.seconds("KANSHI_STORAGE_INTERVAL", 6*time.Hour),
 		StorageExclude:    l.list("KANSHI_STORAGE_EXCLUDE", ""),
 		StorageMinRescan:  l.seconds("KANSHI_STORAGE_MIN_RESCAN", 30*time.Second),
-		StorageCPU:        l.float("KANSHI_STORAGE_CPU", 25),
+		StorageCPU:        l.float("KANSHI_STORAGE_CPU", 10),
 		TreeDepth:         l.int("KANSHI_TREE_DEPTH", 4),
 		StorageCache:      l.string("KANSHI_STORAGE_CACHE", defaultStorageCache()),
 		HostRoot:          strings.TrimRight(l.string("KANSHI_HOST_ROOT", ""), `/\`),
