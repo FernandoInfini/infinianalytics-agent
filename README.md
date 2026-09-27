@@ -135,7 +135,7 @@ Precedence is: flag, then environment, then file, then the default.
 | `KANSHI_STORAGE_ROOTS` | | `auto` | Folders in the storage map: `auto`, `path`, or `label=path`, comma-separated. `auto,/srv` adds to the defaults |
 | `KANSHI_STORAGE_EXCLUDE` | | *(none)* | Folders to skip entirely, e.g. `/var/lib/docker` |
 | `KANSHI_STORAGE_INTERVAL` | | `21600` | Seconds a folder's size is trusted before opening the folder above it measures it again |
-| `KANSHI_STORAGE_CPU` | | `25` | Share of one core, in %, measuring folders may use. `100` = unthrottled |
+| `KANSHI_STORAGE_CPU` | | `10` | Share of one core, in %, measuring folders may use. `100` = unthrottled |
 | `KANSHI_TREE_DEPTH` | | `4` | Folder levels remembered from each measurement; deeper folders are measured when you open them |
 | `KANSHI_STORAGE_CACHE` | | `~/.cache/kanshi/storage.cache`, `%LocalAppData%\kanshi\storage.cache`; `/data/storage.cache` in the image | Where folder sizes are cached, so a restart does not measure them again |
 | `KANSHI_POLL_INTERVAL` | | `5` | Seconds between live updates |
@@ -158,7 +158,7 @@ With `KANSHI_STORAGE_ROOTS=auto`:
 
 Nothing is scanned up front. Opening a folder lists it on the spot, and each subfolder's size comes from a small
 cache file; the ones it has never seen, or not for six hours, are measured in the background, at the lowest CPU
-and disk priority and throttled to a quarter of one core. The first visit to `/` still measures most of the disk
+and disk priority and throttled to a tenth of one core. The first visit to `/` still measures most of the disk
 once. After that, opening a folder is instant, restarts included, and only folders someone opens are measured
 again. **Rescan** re-measures the folders on screen.
 

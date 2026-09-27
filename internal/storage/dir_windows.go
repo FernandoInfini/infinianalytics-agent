@@ -46,7 +46,7 @@ var (
 	kernel32                         = syscall.NewLazyDLL("kernel32.dll")
 	procGetFileInformationByHandleEx = kernel32.NewProc("GetFileInformationByHandleEx")
 	procSetThreadPriority            = kernel32.NewProc("SetThreadPriority")
-	procGetThreadTimes               = kernel32.NewProc("GetThreadTimes")
+	procGetProcessTimes              = kernel32.NewProc("GetProcessTimes")
 
 	advapi32                  = syscall.NewLazyDLL("advapi32.dll")
 	procLookupPrivilegeValueW = advapi32.NewProc("LookupPrivilegeValueW")
@@ -76,6 +76,7 @@ const (
 	offFileID     = 96
 	offName       = 104
 
+	currentProcess            = ^uintptr(0) // GetCurrentProcess's pseudo-handle, -1
 	currentThread             = ^uintptr(1) // GetCurrentThread's pseudo-handle, -2
 	threadModeBackgroundBegin = 0x00010000
 	sePrivilegeEnabled        = 0x2
@@ -232,10 +233,10 @@ func enableBackupPrivilege() {
 	procAdjustTokenPrivileges.Call(uintptr(token), 0, uintptr(unsafe.Pointer(&privileges)), 0, 0, 0)
 }
 
-// threadCPU is the kernel+user time of the calling thread.
-func threadCPU() time.Duration {
+// processCPU is the kernel+user time of the whole process.
+func processCPU() time.Duration {
 	var created, exited, kernel, user syscall.Filetime
-	if ok, _, _ := procGetThreadTimes.Call(currentThread, uintptr(unsafe.Pointer(&created)),
+	if ok, _, _ := procGetProcessTimes.Call(currentProcess, uintptr(unsafe.Pointer(&created)),
 		uintptr(unsafe.Pointer(&exited)), uintptr(unsafe.Pointer(&kernel)), uintptr(unsafe.Pointer(&user))); ok == 0 {
 		return 0
 	}

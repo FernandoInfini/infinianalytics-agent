@@ -274,7 +274,7 @@ file already has the capability.
 `DOCKER_HOST` to the right endpoint, e.g. `unix:///run/user/1000/docker.sock` for rootless Docker.
 
 **Folders say "sizing…" for a while the first time.** Each one is measured once, at low priority and
-throttled to a quarter of one core, and then cached; the first visit to `/` measures most of the disk.
+throttled to a tenth of one core, and then cached; the first visit to `/` measures most of the disk.
 `KANSHI_STORAGE_EXCLUDE=/var/lib/docker` skips the largest pile of small files on a Docker host;
 `KANSHI_STORAGE_CPU=100` removes the throttle.
 

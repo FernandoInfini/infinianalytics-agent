@@ -224,8 +224,10 @@ func (w *walker) walk(ctx context.Context, rootPath string) (*tree, error) {
 // matters when something else wants the CPU; on an otherwise quiet box a
 // warm-cache walk would happily pin a core for a minute, which shows up on the
 // very dashboard it is feeding. So after every stretch of work the walk sleeps
-// long enough that the CPU it actually used — measured per thread, so time
-// blocked on the disk costs nothing — averages out to the configured share.
+// long enough that the CPU the process actually used averages out to the
+// configured share. Time blocked on the disk costs nothing. It is measured for
+// the whole process rather than the walk's thread so the garbage collection
+// the walk causes counts too, and the share is what `docker stats` shows.
 type throttle struct {
 	share float64 // of one core; >= 1 means unthrottled
 	ops   int
@@ -245,7 +247,7 @@ func newThrottle(percent float64) *throttle {
 	}
 	t.timer = time.NewTimer(time.Hour)
 	t.timer.Stop()
-	t.mark, t.cpu = time.Now(), threadCPU()
+	t.mark, t.cpu = time.Now(), processCPU()
 	return t
 }
 
@@ -255,7 +257,7 @@ func (t *throttle) wait(ctx context.Context, ops int) error {
 	}
 	t.ops = 0
 	if t.share < 1 {
-		cpu := threadCPU()
+		cpu := processCPU()
 		idle := time.Duration(float64(cpu-t.cpu)/t.share) - time.Since(t.mark)
 		if idle > time.Millisecond {
 			t.timer.Reset(min(idle, 2*time.Second))

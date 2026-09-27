@@ -166,11 +166,11 @@ func deprioritise() {
 	syscall.RawSyscall(syscall.SYS_IOPRIO_SET, ioprioWhoProcess, 0, ioprioClassBE<<ioprioClassShift|7)
 }
 
-// threadCPU is the user+system time of the calling thread, which the walk has
-// to itself because it is locked to it.
-func threadCPU() time.Duration {
+// processCPU is the user+system time of the whole process: the walk's own
+// thread, plus the garbage collection its allocations cause on the others.
+func processCPU() time.Duration {
 	var ru syscall.Rusage
-	if syscall.Getrusage(syscall.RUSAGE_THREAD, &ru) != nil {
+	if syscall.Getrusage(syscall.RUSAGE_SELF, &ru) != nil {
 		return 0
 	}
 	return time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
