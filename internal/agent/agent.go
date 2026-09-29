@@ -275,7 +275,7 @@ func (a *Agent) readFilesystems(ts time.Time) []FilesystemRow {
 	rows := make([]FilesystemRow, 0, len(list))
 	now := map[string]bool{}
 	for _, fs := range list {
-		// A read-only filesystem (an ISO, a squashfs image) is always "full"
+		// An image filesystem (an ISO, a squashfs snap) is always "full"
 		// by construction: reporting it would keep the server degraded and
 		// hide the disks that can actually fill up.
 		if readOnlyMount(fs.Path) {
