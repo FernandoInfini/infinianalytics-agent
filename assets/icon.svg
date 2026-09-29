@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>InfiniAnalytics Agent</title>
+  <circle cx="256" cy="256" r="256" fill="#0a0a0a"/>
+  <g fill="none" stroke="#f0e823" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="118" y="120" width="276" height="120" rx="30" stroke-width="24"/>
+    <rect x="118" y="272" width="276" height="120" rx="30" stroke-width="24"/>
+    <path d="M232 180h108" stroke-width="22"/>
+    <path d="M224 332h26l20-38 30 76 20-38h24" stroke-width="20"/>
+  </g>
+  <g fill="#f0e823">
+    <circle cx="178" cy="180" r="18"/>
+    <circle cx="178" cy="332" r="18"/>
+  </g>
+</svg>
