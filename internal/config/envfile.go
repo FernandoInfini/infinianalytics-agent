@@ -8,17 +8,18 @@ import (
 	"strings"
 )
 
-// FileName is the optional settings file. It uses the same KEY=VALUE format
-// as a Compose .env file, so the two are interchangeable.
-const FileName = "kanshi.env"
+// FileName is the settings file. It uses the same KEY=VALUE format as a
+// Compose .env file, so the two are interchangeable.
+const FileName = "agent.env"
 
 // findFile picks the settings file: an explicit path (flag, then
-// KANSHI_CONFIG), else kanshi.env next to the executable, else one in the
-// user's config directory. When none exists it still returns where one should
-// be created, so the dashboard has somewhere to save an access change.
+// IA_AGENT_CONFIG), else agent.env next to the executable, else the system
+// location (/var/lib/infinianalytics-agent on Linux, %ProgramData%\InfiniAnalytics
+// Agent on Windows). When none exists it still returns where one should be
+// created, so `enroll` has somewhere to save to.
 func findFile(explicit string) (path string, exists bool) {
 	if explicit == "" {
-		explicit = strings.TrimSpace(os.Getenv("KANSHI_CONFIG"))
+		explicit = strings.TrimSpace(os.Getenv("IA_AGENT_CONFIG"))
 	}
 	if explicit != "" {
 		return explicit, isFile(explicit)
@@ -28,13 +29,7 @@ func findFile(explicit string) (path string, exists bool) {
 			return p, true
 		}
 	}
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		// A scratch container has no HOME. There is nowhere to persist to,
-		// and the access mode comes from the environment there anyway.
-		return "", false
-	}
-	p := filepath.Join(dir, "kanshi", FileName)
+	p := filepath.Join(DefaultDir(), FileName)
 	return p, isFile(p)
 }
 
@@ -82,28 +77,12 @@ func parseLine(line string) (key, value string, ok bool) {
 	return key, value, key != ""
 }
 
-// Writable reports whether SaveValue could write path: its directory can be
-// created and written to. In a container with a read-only root filesystem it
-// cannot, and the dashboard says so instead of offering to save.
-func Writable(path string) bool {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false
-	}
-	f, err := os.CreateTemp(dir, ".kanshi-*.tmp")
-	if err != nil {
-		return false
-	}
-	f.Close()
-	os.Remove(f.Name())
-	return true
-}
-
-// SaveValue sets one key in the file, keeping every other line — comments
-// included — exactly as it was. The file and its directory are created if
-// needed, and the write goes through a rename so a crash cannot leave half a
-// file behind.
-func SaveValue(path, key, value string) error {
+// SaveValues sets the given keys in the file, keeping every other line -
+// comments included - exactly as it was. The file and its directory are
+// created if needed, the write goes through a rename so a crash cannot leave
+// half a file behind, and the result is readable by its owner only: it holds
+// the agent key.
+func SaveValues(path string, values map[string]string, order []string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -112,30 +91,39 @@ func SaveValue(path, key, value string) error {
 	if len(raw) > 0 {
 		lines = strings.Split(strings.TrimRight(string(raw), "\r\n"), "\n")
 	}
-	entry := key + "=" + value
-	replaced := false
+	replaced := map[string]bool{}
 	for i, line := range lines {
-		if k, _, ok := parseLine(strings.TrimRight(line, "\r")); ok && k == key {
-			if !replaced {
-				lines[i] = entry
-				replaced = true
-			} else {
-				lines[i] = "# " + line // a later duplicate would win; neutralise it
-			}
+		k, _, ok := parseLine(strings.TrimRight(line, "\r"))
+		v, wanted := values[k]
+		if !ok || !wanted {
+			continue
+		}
+		if !replaced[k] {
+			lines[i] = k + "=" + v
+			replaced[k] = true
+		} else {
+			lines[i] = "# " + line // a later duplicate would win; neutralise it
 		}
 	}
-	if !replaced {
-		lines = append(lines, entry)
+	for _, k := range order {
+		if v, ok := values[k]; ok && !replaced[k] {
+			lines = append(lines, k+"="+v)
+		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".kanshi-*.env")
+	tmp, err := os.CreateTemp(dir, ".agent-*.env")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil && !isWindows {
+		tmp.Close()
+		return err
+	}
 	if _, err := tmp.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
 		tmp.Close()
 		return err
@@ -143,5 +131,12 @@ func SaveValue(path, key, value string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	return restrict(path)
 }
+
+// restrict locks the saved file down (0600 / an owner-only ACL). A variable so
+// tests on Windows, which do not run elevated, can keep reading what they wrote.
+var restrict = restrictFile

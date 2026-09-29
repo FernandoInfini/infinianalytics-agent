@@ -1,7 +1,0 @@
-.git
-.github
-.env
-*.env
-docs
-README.md
-packaging

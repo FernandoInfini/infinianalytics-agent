@@ -1,23 +1,11 @@
-# Local configuration and secrets — .env.example is the tracked template
+# Local settings and secrets - agent.env.example is the tracked template.
 .env
 .env.*
-!.env.example
+agent.env
 
-# Local Compose overrides — picked up automatically by `docker compose up`,
-# never meant to be shared.
-docker-compose.override.yml
-
-# Node.js and npm
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-.npm/
-.yarn/
-.pnp.*
-
-# Go build output — the binary is named after the module
+# Go build output. The module path is still kanshi's (see README), so a bare
+# `go build` names the binary kanshi.
+/infinianalytics-agent
 /kanshi
 *.test
 *.out
@@ -36,8 +24,11 @@ Thumbs.db
 # Release builds and Windows resource objects
 *.exe
 *.syso
-kanshi-smoke*
-smoke.log
-vitals.json
-storage.json
-kanshi.env
+
+# scripts/smoke.sh leftovers
+agent-smoke*
+fakeingest-smoke*
+samples.sorted
+status.txt
+agent.log
+fake.log

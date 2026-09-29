@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseLine(t *testing.T) {
@@ -12,103 +13,99 @@ func TestParseLine(t *testing.T) {
 		in, key, value string
 		ok             bool
 	}{
-		{"KANSHI_PORT=8100", "KANSHI_PORT", "8100", true},
-		{"  export KANSHI_ACCESS = lan,tailscale ", "KANSHI_ACCESS", "lan,tailscale", true},
-		{`KANSHI_STORAGE_ROOTS="C:\,D:\"`, "KANSHI_STORAGE_ROOTS", `C:\,D:\`, true},
-		{"KANSHI_ACCESS=local # only this machine", "KANSHI_ACCESS", "local", true},
-		{"# KANSHI_PORT=1", "", "", false},
+		{"IA_AGENT_URL=https://x", "IA_AGENT_URL", "https://x", true},
+		{"export IA_AGENT_KEY='iak_abc'", "IA_AGENT_KEY", "iak_abc", true},
+		{`IA_AGENT_KEY="a b"`, "IA_AGENT_KEY", "a b", true},
+		{"IA_AGENT_DOCKER=false # no docker here", "IA_AGENT_DOCKER", "false", true},
+		{"# comment", "", "", false},
 		{"", "", "", false},
-		{"no equals sign", "", "", false},
+		{"novalue", "", "", false},
 	}
 	for _, c := range cases {
 		k, v, ok := parseLine(c.in)
 		if k != c.key || v != c.value || ok != c.ok {
-			t.Errorf("parseLine(%q) = %q, %q, %v; want %q, %q, %v", c.in, k, v, ok, c.key, c.value, c.ok)
+			t.Errorf("parseLine(%q) = %q, %q, %v", c.in, k, v, ok)
 		}
 	}
 }
 
-func TestSaveValueKeepsTheRestOfTheFile(t *testing.T) {
+func TestSaveValuesKeepsTheRestOfTheFile(t *testing.T) {
+	restrict = func(string) error { return nil }
+	defer func() { restrict = restrictFile }()
 	path := filepath.Join(t.TempDir(), "sub", FileName)
-	if err := SaveValue(path, "KANSHI_ACCESS", "lan"); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(path, []byte("# my settings\nKANSHI_PORT=9000\nKANSHI_ACCESS=lan\nKANSHI_ACCESS=all\n"), 0o644)
-	if err := SaveValue(path, "KANSHI_ACCESS", "tailscale"); err != nil {
+	orig := "# my settings\nIA_AGENT_DOCKER=false\nIA_AGENT_KEY=old\nIA_AGENT_KEY=dup\n"
+	if err := os.WriteFile(path, []byte(orig), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := os.ReadFile(path)
-	want := "# my settings\nKANSHI_PORT=9000\nKANSHI_ACCESS=tailscale\n# KANSHI_ACCESS=all\n"
-	if string(got) != want {
-		t.Errorf("file after save:\n%s\nwant:\n%s", got, want)
+	err := SaveValues(path, map[string]string{KeyAgentKey: "iak_new", KeyServerID: "sid"}, []string{KeyServerID, KeyAgentKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	got := string(raw)
+	for _, want := range []string{"# my settings", "IA_AGENT_DOCKER=false", "IA_AGENT_KEY=iak_new", "# IA_AGENT_KEY=dup", "IA_AGENT_SERVER_ID=sid"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
 	values, _ := ReadFile(path)
-	if values["KANSHI_ACCESS"] != "tailscale" || values["KANSHI_PORT"] != "9000" {
-		t.Errorf("read back %v", values)
+	if values[KeyAgentKey] != "iak_new" {
+		t.Errorf("key = %q", values[KeyAgentKey])
+	}
+	if !isWindows {
+		info, _ := os.Stat(path)
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("mode = %v, want 0600", info.Mode().Perm())
+		}
 	}
 }
 
 func TestLoadPrecedence(t *testing.T) {
-	file := filepath.Join(t.TempDir(), FileName)
-	os.WriteFile(file, []byte("KANSHI_ACCESS=lan\nKANSHI_PORT=9000\nKANSHI_POLL_INTERVAL=7\n"), 0o644)
-	for _, k := range []string{"KANSHI_ACCESS", "KANSHI_HOST", "KANSHI_PORT", "KANSHI_POLL_INTERVAL", "KANSHI_CONFIG", "DOCKER_HOST", "KANSHI_DOCKER_SOCKET"} {
-		t.Setenv(k, "")
+	path := filepath.Join(t.TempDir(), FileName)
+	os.WriteFile(path, []byte("IA_AGENT_URL=https://file/\nIA_AGENT_SERVER_ID=from-file\nIA_AGENT_CONTAINER_LIMIT=7\n"), 0o600)
+	t.Setenv("IA_AGENT_SERVER_ID", "from-env")
+	cfg := Load(path)
+	if !cfg.FileLoaded || cfg.File != path {
+		t.Fatalf("file not loaded: %+v", cfg)
 	}
-
-	cfg := Load(Flags{File: file})
-	if cfg.Access != "lan" || cfg.AccessSource != SourceFile || cfg.Port != 9000 || cfg.PollInterval.Seconds() != 7 {
-		t.Errorf("file only: access=%q (%s) port=%d poll=%v", cfg.Access, cfg.AccessSource, cfg.Port, cfg.PollInterval)
+	if cfg.URL != "https://file" {
+		t.Errorf("URL = %q (trailing slash should be trimmed)", cfg.URL)
 	}
-
-	t.Setenv("KANSHI_HOST", "0.0.0.0")
-	cfg = Load(Flags{File: file})
-	if cfg.Access != "all" || cfg.AccessSource != SourceEnv {
-		t.Errorf("legacy KANSHI_HOST in env should beat the file: %q (%s)", cfg.Access, cfg.AccessSource)
+	if cfg.ServerID != "from-env" {
+		t.Errorf("ServerID = %q, env should win", cfg.ServerID)
 	}
-
-	t.Setenv("KANSHI_ACCESS", "tailscale")
-	cfg = Load(Flags{File: file})
-	if cfg.Access != "tailscale" || cfg.AccessSource != SourceEnv {
-		t.Errorf("KANSHI_ACCESS should beat KANSHI_HOST: %q (%s)", cfg.Access, cfg.AccessSource)
+	if cfg.ContainerLimit != 7 {
+		t.Errorf("ContainerLimit = %d", cfg.ContainerLimit)
 	}
-
-	cfg = Load(Flags{File: file, Access: "local", Port: 8200})
-	if cfg.Access != "local" || cfg.AccessSource != SourceFlag || cfg.Port != 8200 {
-		t.Errorf("flags should win: %q (%s) port %d", cfg.Access, cfg.AccessSource, cfg.Port)
+	if cfg.StateDir != filepath.Dir(path) {
+		t.Errorf("StateDir = %q", cfg.StateDir)
+	}
+	if cfg.Enrolled() {
+		t.Error("no key yet, should not count as enrolled")
 	}
 }
 
 func TestLoadDefaults(t *testing.T) {
-	for _, k := range []string{"KANSHI_ACCESS", "KANSHI_HOST", "KANSHI_STORAGE_ROOTS", "DOCKER_HOST", "KANSHI_DOCKER_SOCKET"} {
-		t.Setenv(k, "")
-	}
-	cfg := Load(Flags{File: filepath.Join(t.TempDir(), "missing.env")})
-	if cfg.Access != "local" || cfg.AccessSource != SourceDefault {
-		t.Errorf("default access = %q (%s), want local", cfg.Access, cfg.AccessSource)
-	}
-	if len(cfg.StorageRoots) != 1 || cfg.StorageRoots[0] != "auto" {
-		t.Errorf("default roots = %v", cfg.StorageRoots)
-	}
-	if !strings.Contains(cfg.DockerHost, "://") {
-		t.Errorf("default docker host %q has no scheme", cfg.DockerHost)
-	}
+	cfg := Load(filepath.Join(t.TempDir(), "missing.env"))
 	if cfg.FileLoaded {
-		t.Error("a missing file must not count as loaded")
+		t.Fatal("a missing file cannot be loaded")
 	}
-
-	t.Setenv("KANSHI_DOCKER_SOCKET", "/run/docker.sock")
-	if got := Load(Flags{}).DockerHost; got != "unix:///run/docker.sock" {
-		t.Errorf("legacy socket path became %q", got)
+	if cfg.SampleInterval != 2*time.Second || cfg.WindowInterval != 10*time.Second {
+		t.Errorf("intervals = %v / %v", cfg.SampleInterval, cfg.WindowInterval)
 	}
-}
-
-func TestWritable(t *testing.T) {
-	if !Writable(filepath.Join(t.TempDir(), "new", FileName)) {
-		t.Error("a fresh temp directory should be writable")
+	if cfg.SpoolMaxAge != 48*time.Hour || cfg.SpoolMaxBytes != 50<<20 {
+		t.Errorf("spool caps = %v / %d", cfg.SpoolMaxAge, cfg.SpoolMaxBytes)
 	}
-	blocker := filepath.Join(t.TempDir(), "file")
-	os.WriteFile(blocker, nil, 0o644)
-	if Writable(filepath.Join(blocker, "sub", FileName)) {
-		t.Error("a path under a regular file cannot be written")
+	if !cfg.DockerEnabled || cfg.ContainerLimit != 50 {
+		t.Errorf("docker = %v / %d", cfg.DockerEnabled, cfg.ContainerLimit)
+	}
+	if len(cfg.FilesystemRoots) != 1 || cfg.FilesystemRoots[0] != "auto" {
+		t.Errorf("roots = %v", cfg.FilesystemRoots)
+	}
+	if cfg.DockerHost != defaultDockerHost && os.Getenv("DOCKER_HOST") == "" {
+		t.Errorf("DockerHost = %q", cfg.DockerHost)
 	}
 }
