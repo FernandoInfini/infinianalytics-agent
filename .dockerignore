@@ -1,0 +1,6 @@
+.git
+dist/
+dist-e2e/
+agent-smoke*
+fakeingest-smoke*
+*.exe

@@ -24,6 +24,15 @@ curl -fsSL https://github.com/InfiniWorkspace/infinianalytics-agent/releases/lat
 & ([scriptblock]::Create((irm 'https://github.com/InfiniWorkspace/infinianalytics-agent/releases/latest/download/install.ps1'))) -Code 'XXXX-XXXX-XXXX' -Url 'https://api.analytics.infini.es'
 ```
 
+```sh
+# Docker - the container reports the HOST (host network, / read-only, Docker socket)
+docker run -d --name infinianalytics-agent --restart unless-stopped --network host   -v /var/run/docker.sock:/var/run/docker.sock:ro -v /:/hostfs:ro -v infinianalytics-agent:/state   -e IA_AGENT_ENROLL_CODE=XXXX-XXXX-XXXX -e IA_AGENT_URL=https://api.analytics.infini.es   ghcr.io/infiniworkspace/infinianalytics-agent:latest
+```
+
+The code is only used on the first start; the key it is traded for lives in the `/state`
+volume. In the container a host reboot is seen as a plain `docker stop`, so it is reported as
+"motivo desconocido" rather than "reinicio".
+
 The dialog turns to **Conectado** as soon as the first batch arrives. Running either script
 again without a code upgrades the binary and restarts the service.
 
