@@ -50,13 +50,16 @@ grep -Eq 'spool: +[1-9][0-9]* window' status.txt
 
 echo "--- 3. backend back: the spool drains, no hole"
 rm "$tmp/ingest/down"
+# Drained = pushing ok with at most the window that just closed still queued:
+# a new one lands every 10 s, so an empty spool is only a moment between pushes.
+drained() { grep -q 'last push:.*(ok' status.txt && grep -Eq 'spool: +[01] window' status.txt; }
 for _ in $(seq 1 40); do
   "$agent" status --config "$cfg" > status.txt
-  grep -Eq 'spool: +0 window' status.txt && break
+  drained && break
   sleep 1
 done
 cat status.txt
-grep -Eq 'spool: +0 window' status.txt
+drained
 sort -u "$tmp/ingest/samples.log" > samples.sorted
 first=$(head -1 samples.sorted) last=$(tail -1 samples.sorted) n=$(count samples.sorted)
 span=$(( ($(date -u -d "$last" +%s) - $(date -u -d "$first" +%s)) / 10 + 1 ))
