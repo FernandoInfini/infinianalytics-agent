@@ -9,6 +9,7 @@ func TestUnitFile(t *testing.T) {
 	unit := UnitFile("/usr/local/bin/infinianalytics-agent", "/var/lib/infinianalytics-agent/agent.env", true)
 	for _, want := range []string{
 		"ExecStart=/usr/local/bin/infinianalytics-agent run",
+		"ExecStop=+/usr/local/bin/infinianalytics-agent note-stop",
 		"StateDirectory=infinianalytics-agent",
 		"Environment=IA_AGENT_CONFIG=/var/lib/infinianalytics-agent/agent.env",
 		"SupplementaryGroups=docker",

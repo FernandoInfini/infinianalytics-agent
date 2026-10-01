@@ -40,6 +40,8 @@ After=network-online.target docker.service
 
 [Service]
 ExecStart=%s run
+# "+": as root, which asks systemd why we are stopping without D-Bus.
+ExecStop=+%s note-stop
 StateDirectory=%s
 StateDirectoryMode=0700
 Environment=IA_AGENT_CONFIG=%s
@@ -67,6 +69,6 @@ MemoryMax=128M
 
 [Install]
 WantedBy=multi-user.target
-`, DisplayName, binary, Name, configPath, groups)
+`, DisplayName, binary, binary, Name, configPath, groups)
 	return b.String()
 }

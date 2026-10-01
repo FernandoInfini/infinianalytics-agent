@@ -35,7 +35,7 @@ under **Infraestructura → Servidores**.
 - 🧩 **Modules** — host vitals are always sent; disk space and Docker (stats and events) are on by default and can each be turned off, and then are neither read nor sent. See [Modules](#modules)
 - 💾 **Spool** — every closed window is written to an append-only, fsynced spool before it is pushed, and removed once the backend acknowledges it. While the backend is unreachable it keeps up to 48 h / 50 MB (oldest dropped first) and drains oldest-first, an hour per request, when it is back — the charts have no hole
 - 🚀 **Pushing** — one gzip POST every 10 s (the backend can ask for another cadence), with exponential backoff and jitter on 5xx / network errors. `401` / `410` (key replaced, server deleted from the dashboard) stop pushing until `enroll` is run again
-- 🔌 **Why It Stopped** — on SIGTERM the agent asks systemd what is queued (`reboot.target` → reboot, `poweroff.target` → shutdown, nothing → the service was stopped); the Windows service accepts PRESHUTDOWN for the same purpose. The `stopping` event is spooled first, then pushed with a 3 s timeout. Together with the kernel boot id this is how the backend tells a reboot from a crash from a network cut
+- 🔌 **Why It Stopped** — just before SIGTERM the unit's `ExecStop` asks systemd, as root and without D-Bus, what is queued (`reboot.target` → reboot, `poweroff.target` → shutdown, nothing → the service was stopped); the Windows service accepts PRESHUTDOWN for the same purpose. The `stopping` event is spooled first, then pushed with a 3 s timeout. Together with the kernel boot id this is how the backend tells a reboot from a crash from a network cut
 - 🔒 **Own Key per Server** — a one-time code is traded for this server's key, stored readable only by root / SYSTEM and Administrators. Re-enrolling the same machine keeps its history
 
 ## Tech Stack
@@ -83,8 +83,8 @@ docker run -d --name infinianalytics-agent --restart unless-stopped --network ho
 
 The code is only used on the first start; the key it is traded for lives in the `/state`
 volume. Add `-e IA_AGENT_DISKS=false` and/or `-e IA_AGENT_DOCKER=false` to leave those
-[modules](#modules) out (without Docker the socket mount is not needed). In the container a host reboot is seen as a plain `docker stop`, so it is reported as
-"motivo desconocido" rather than "reinicio".
+[modules](#modules) out (without Docker the socket mount is not needed). In the container a host reboot is seen as a plain `docker stop`; the new boot id still makes
+it a "reinicio", but a shutdown and power-on reads the same way.
 
 ### By Hand
 

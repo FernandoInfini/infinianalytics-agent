@@ -2,8 +2,34 @@ package agent
 
 import (
 	"bufio"
+	"os"
+	"path/filepath"
 	"strings"
 )
+
+const stopReasonFile = "stop_reason"
+
+// RecordStopReason is the systemd unit's ExecStop, run as root just before
+// the agent gets SIGTERM. The agent runs as a throwaway user whose systemctl
+// goes through D-Bus, often already gone by the time a reboot stops services;
+// root's talks to systemd directly. So ask here, and leave the answer in dir
+// for the agent to pick up.
+func RecordStopReason(dir string) (string, error) {
+	reason := detectStopReason()
+	return reason, os.WriteFile(filepath.Join(dir, stopReasonFile), []byte(reason+"\n"), 0o644)
+}
+
+// takeRecordedStopReason returns and removes what RecordStopReason left in
+// dir, "" if nothing.
+func takeRecordedStopReason(dir string) string {
+	path := filepath.Join(dir, stopReasonFile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	_ = os.Remove(path)
+	return strings.TrimSpace(string(raw))
+}
 
 // ParseStopReason reads `systemctl list-jobs --no-legend` as captured while
 // the agent is being stopped. A reboot or power-off queues its target as a

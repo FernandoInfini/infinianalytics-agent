@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -64,6 +66,22 @@ func TestParseStopReason(t *testing.T) {
 		if got := ParseStopReason(in); got != want {
 			t.Errorf("ParseStopReason(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRecordedStopReasonIsTakenOnce(t *testing.T) {
+	dir := t.TempDir()
+	if got := takeRecordedStopReason(dir); got != "" {
+		t.Fatalf("nothing recorded, got %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, stopReasonFile), []byte(StopReboot+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := takeRecordedStopReason(dir); got != StopReboot {
+		t.Fatalf("got %q, want %q", got, StopReboot)
+	}
+	if got := takeRecordedStopReason(dir); got != "" {
+		t.Fatalf("a reason belongs to one stop, got %q again", got)
 	}
 }
 

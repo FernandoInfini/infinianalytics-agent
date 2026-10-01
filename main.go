@@ -104,6 +104,16 @@ func main() {
 		must(service.Start())
 	case "stop":
 		must(service.Stop())
+	case "note-stop":
+		// The systemd unit's ExecStop, not for people.
+		fs.Parse(args)
+		dir := config.Load(*cfgPath).StateDir
+		if dir == "" {
+			dir = config.DefaultDir()
+		}
+		reason, err := agent.RecordStopReason(dir)
+		must(err)
+		logf("stopping (%s)", reason)
 	case "status":
 		fs.Parse(args)
 		status(config.Load(*cfgPath))

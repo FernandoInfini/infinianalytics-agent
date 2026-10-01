@@ -102,6 +102,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer spool.Close()
 
 	a.state = LoadState(a.cfg.StateDir)
+	takeRecordedStopReason(a.cfg.StateDir) // a leftover is from a stop this run did not see
 	a.reader.Prime()
 	first := a.reader.Sample()
 	a.host = HostIdentity(first.Memory.Total, a.cfg.HostRoot)
@@ -168,6 +169,9 @@ func (a *Agent) reasonForStop() string {
 		if reason := a.StopReason(); reason != "" {
 			return reason
 		}
+	}
+	if reason := takeRecordedStopReason(a.cfg.StateDir); reason != "" {
+		return reason
 	}
 	return detectStopReason()
 }
