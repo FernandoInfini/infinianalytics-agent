@@ -27,6 +27,7 @@ under **Infraestructura → Servidores**.
 - 📈 **Sampling** — vitals every 2 s, folded into a 10 s window: min / mean / max of CPU and memory, mean / max of swap, network and disk throughput, the busiest single core, load and temperature. The per-core list is only sent as the current reading. Filesystems every 60 s
 - 🐳 **Containers** — once per window, the busiest 50 containers by CPU + memory (stopped ones fill any room left), keyed by compose `project/service` so a redeploy continues the same series
 - 📣 **Docker Events** — the event stream adds starts, stops, crashes with exit codes, OOM kills, restarts, health changes and deploys (a start on a new image)
+- 🧩 **Modules** — host vitals are always sent; disk space and Docker (stats and events) are on by default and can each be turned off, and then are neither read nor sent. See [Modules](#modules)
 - 💾 **Spool** — every closed window is written to an append-only, fsynced spool before it is pushed, and removed once the backend acknowledges it. While the backend is unreachable it keeps up to 48 h / 50 MB (oldest dropped first) and drains oldest-first, an hour per request, when it is back — the charts have no hole
 - 🚀 **Pushing** — one gzip POST every 10 s (the backend can ask for another cadence), with exponential backoff and jitter on 5xx / network errors. `401` / `410` (key replaced, server deleted from the dashboard) stop pushing until `enroll` is run again
 - 🔌 **Why It Stopped** — on SIGTERM the agent asks systemd what is queued (`reboot.target` → reboot, `poweroff.target` → shutdown, nothing → the service was stopped); the Windows service accepts PRESHUTDOWN for the same purpose. The `stopping` event is spooled first, then pushed with a 3 s timeout. Together with the kernel boot id this is how the backend tells a reboot from a crash from a network cut
@@ -76,7 +77,8 @@ docker run -d --name infinianalytics-agent --restart unless-stopped --network ho
 ```
 
 The code is only used on the first start; the key it is traded for lives in the `/state`
-volume. In the container a host reboot is seen as a plain `docker stop`, so it is reported as
+volume. Add `-e IA_AGENT_DISKS=false` and/or `-e IA_AGENT_DOCKER=false` to leave those
+[modules](#modules) out (without Docker the socket mount is not needed). In the container a host reboot is seen as a plain `docker stop`, so it is reported as
 "motivo desconocido" rather than "reinicio".
 
 ### By Hand
@@ -92,6 +94,31 @@ infinianalytics-agent status            # last push, pending spool
 Windows), readable only by root / SYSTEM and Administrators. Re-enrolling the same machine
 (same `/etc/machine-id` or `MachineGuid`) re-binds to the same server and keeps its history.
 
+## Modules
+
+Host vitals (CPU, memory, swap, network, disk I/O, load, temperature, uptime) and the
+boot / stop events are always sent. Two modules are on by default and can be turned off:
+
+| Module | Sends | Flag | Setting |
+|---|---|---|---|
+| Disk space | Used / total per filesystem every 60 s, mount and unmount events | `--disks off` | `IA_AGENT_DISKS=false` |
+| Docker | Per-container stats every window, the container event stream | `--docker off` | `IA_AGENT_DOCKER=false` |
+
+A module that is off is neither read nor sent. Flags take `on` / `off`. Settings take
+`true` / `false`, `on` / `off`, `yes` / `no` or `1` / `0`. Precedence is: flag, then
+environment, then `agent.env`, then the default (on).
+
+- **Install scripts:** append the flags to the line from the dashboard, e.g.
+  `… | sudo sh -s -- --code XXXX-XXXX-XXXX --url https://api.analytics.infini.es --docker off`
+  or `… -Code 'XXXX-XXXX-XXXX' -Url 'https://api.analytics.infini.es' -Docker off` on Windows.
+- **`enroll` / `install`:** the flags are saved to `agent.env`, so the service keeps them and
+  later upgrades keep them too.
+- **`run`:** the flags only apply to that run.
+- **Docker image:** pass `-e IA_AGENT_DISKS=false` / `-e IA_AGENT_DOCKER=false`.
+- **By hand:** paste the settings into `agent.env` and restart the service.
+
+`infinianalytics-agent status` shows the active modules.
+
 ## Configuration
 
 Everything lives in **`agent.env`**, next to the key `enroll` wrote. Environment variables of
@@ -105,7 +132,8 @@ the same name take precedence over the file. All settings, with comments, are in
 | `IA_AGENT_WINDOW` | `10` | Seconds per summarised window (and push). |
 | `IA_AGENT_FS_INTERVAL` | `60` | Seconds between filesystem readings. |
 | `IA_AGENT_SPOOL_MAX_AGE` / `IA_AGENT_SPOOL_MAX_MB` | `172800` / `50` | Undelivered data kept on disk, up to both limits. |
-| `IA_AGENT_DOCKER` | `true` | Container stats and the event stream. `false` turns both off. |
+| `IA_AGENT_DISKS` | `true` | Disk space module: filesystem readings and mount events. |
+| `IA_AGENT_DOCKER` | `true` | Docker module: container stats and the event stream. |
 | `IA_AGENT_CONTAINER_LIMIT` | `50` | Busiest containers sent per window. |
 | `IA_AGENT_DOCKER_HOST` | `DOCKER_HOST` | Docker endpoint, then the local socket / Docker Desktop pipe. |
 | `IA_AGENT_FS_ROOTS` | `auto` | `/` plus drives under `/mnt` (Linux), every fixed drive (Windows). Add `auto,/data,backups=/srv/backups`. |

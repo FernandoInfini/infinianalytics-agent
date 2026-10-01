@@ -4,10 +4,15 @@
 # elevated PowerShell (Run as administrator):
 #   & ([scriptblock]::Create((irm '<download>/install.ps1'))) -Code 'XXXX-XXXX-XXXX' -Url 'https://api.analytics.infini.es'
 #
+# Host vitals are always sent. Add -Disks off and/or -Docker off to leave those
+# modules out; the choice is saved in agent.env and kept on upgrades.
+#
 # Without -Code it only upgrades the binary and restarts an already enrolled agent.
 param(
     [string]$Code = "",
     [string]$Url = "https://api.analytics.infini.es",
+    [ValidateSet("", "on", "off")][string]$Disks = "",
+    [ValidateSet("", "on", "off")][string]$Docker = "",
     [string]$DownloadUrl = "https://github.com/InfiniWorkspace/infinianalytics-agent/releases/latest/download"
 )
 $ErrorActionPreference = "Stop"
@@ -43,7 +48,10 @@ if ($svc -and $svc.Status -eq "Running") { Stop-Service -Name "infinianalytics-a
 Move-Item -Force $tmp $exe
 
 if ($Code) { & $exe enroll $Code --url $Url; if ($LASTEXITCODE -ne 0) { throw "Enrollment failed" } }
-& $exe install
+$modules = @()
+if ($Disks) { $modules += "--disks=$Disks" }
+if ($Docker) { $modules += "--docker=$Docker" }
+& $exe install @modules
 if ($LASTEXITCODE -ne 0) { throw "Service installation failed" }
 & $exe status
 Write-Host "Done. The agent runs as the 'InfiniAnalytics Agent' service."
