@@ -16,6 +16,11 @@ under **Infraestructura → Servidores**.
 [![Windows](https://img.shields.io/badge/Windows-service-0078d4?logo=windows&logoColor=white)](#install)
 [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ed?logo=docker&logoColor=white)](#docker)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](#license)
+[![Status](https://img.shields.io/badge/status-active%20development-brightgreen)](https://github.com/InfiniWorkspace/infinianalytics-agent/commits/main)
+[![Last commit](https://img.shields.io/github/last-commit/InfiniWorkspace/infinianalytics-agent)](https://github.com/InfiniWorkspace/infinianalytics-agent/commits/main)
+
+> 🚧 **Under active development.** The agent is evolving quickly — configuration, flags and the
+> wire format may change between releases.
 
 </div>
 
