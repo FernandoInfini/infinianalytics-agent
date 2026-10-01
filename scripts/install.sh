@@ -4,12 +4,16 @@
 # The dashboard's "Añadir servidor" dialog prints the exact line to run:
 #   curl -fsSL <download>/install.sh | sudo sh -s -- --code XXXX-XXXX-XXXX --url https://api.analytics.infini.es
 #
+# Host vitals are always sent. Add --disks off and/or --docker off to leave
+# those modules out; the choice is saved in agent.env and kept on upgrades.
+#
 # Without --code it only upgrades the binary and restarts an already enrolled
 # agent. IA_AGENT_DOWNLOAD_URL overrides where binaries come from.
 set -eu
 
 CODE=""
 URL="https://api.analytics.infini.es"
+MODULES=""
 BASE="${IA_AGENT_DOWNLOAD_URL:-https://github.com/InfiniWorkspace/infinianalytics-agent/releases/latest/download}"
 BIN=/usr/local/bin/infinianalytics-agent
 
@@ -19,6 +23,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --code) CODE="${2:-}"; shift 2 ;;
     --url) URL="${2:-}"; shift 2 ;;
+    --disks|--docker) MODULES="$MODULES $1=${2:-}"; shift 2 ;;
     --download-url) BASE="${2:-}"; shift 2 ;;
     *) die "unknown option $1" ;;
   esac
@@ -55,6 +60,7 @@ install -m 755 "$tmp/$asset" "$BIN"
 if [ -n "$CODE" ]; then
   "$BIN" enroll "$CODE" --url "$URL"
 fi
-"$BIN" install
+# shellcheck disable=SC2086 # MODULES is a list of --flag=value words
+"$BIN" install $MODULES
 "$BIN" status || true
 echo "Done. Follow it with: journalctl -u infinianalytics-agent -f"

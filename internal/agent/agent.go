@@ -120,7 +120,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	wg.Add(1)
 	go func() { defer wg.Done(); a.pushLoop(loops) }()
 
-	a.logf("pushing to %s every %s as server %s", a.cfg.URL, a.cfg.WindowInterval, a.cfg.ServerID)
+	a.logf("pushing to %s every %s as server %s (modules: %s)", a.cfg.URL, a.cfg.WindowInterval, a.cfg.ServerID, Modules(a.cfg))
 	last := a.sampleLoop(ctx)
 
 	// Stopping: say why, durably, before anything else can go wrong.
@@ -137,6 +137,18 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.logf("stopped (%s)", reason)
 	a.saveState()
 	return nil
+}
+
+// Modules lists what this configuration sends, e.g. "host, disks, docker".
+func Modules(cfg config.Config) string {
+	out := "host"
+	if cfg.DisksEnabled {
+		out += ", disks"
+	}
+	if cfg.DockerEnabled {
+		out += ", docker"
+	}
+	return out
 }
 
 func (a *Agent) spoolDir() string { return filepath.Join(a.cfg.StateDir, "spool") }
@@ -253,7 +265,7 @@ func (a *Agent) closeWindow(w *window, final bool) error {
 	w.mu.Lock()
 	rec.Containers = w.containers
 	w.mu.Unlock()
-	if !final && time.Since(a.lastFS) >= a.cfg.FilesystemInterval {
+	if a.cfg.DisksEnabled && !final && time.Since(a.lastFS) >= a.cfg.FilesystemInterval {
 		rec.Filesystems = a.readFilesystems(w.host.start)
 		a.lastFS = time.Now()
 	}

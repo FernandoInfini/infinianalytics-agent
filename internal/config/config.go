@@ -24,6 +24,12 @@ const (
 	KeyAgentKey = "IA_AGENT_KEY"
 )
 
+// Module switches. Host vitals are always sent; these two can be turned off.
+const (
+	KeyDocker = "IA_AGENT_DOCKER"
+	KeyDisks  = "IA_AGENT_DISKS"
+)
+
 // Config is read once at startup.
 type Config struct {
 	// Base URL of the ingestion API, e.g. https://api.analytics.infini.es.
@@ -43,6 +49,9 @@ type Config struct {
 	WindowInterval time.Duration
 	// How often filesystems are measured.
 	FilesystemInterval time.Duration
+
+	// Disk space: filesystem readings and mount / unmount events.
+	DisksEnabled bool
 
 	// Spool caps: whatever could not be pushed is kept on disk up to both.
 	SpoolMaxAge   time.Duration
@@ -102,7 +111,8 @@ func Load(explicit string) Config {
 		FilesystemInterval: l.seconds("IA_AGENT_FS_INTERVAL", time.Minute),
 		SpoolMaxAge:        l.seconds("IA_AGENT_SPOOL_MAX_AGE", 48*time.Hour),
 		SpoolMaxBytes:      int64(l.int("IA_AGENT_SPOOL_MAX_MB", 50)) << 20,
-		DockerEnabled:      l.bool("IA_AGENT_DOCKER", true),
+		DisksEnabled:       l.bool(KeyDisks, true),
+		DockerEnabled:      l.bool(KeyDocker, true),
 		ContainerLimit:     l.int("IA_AGENT_CONTAINER_LIMIT", 50),
 		DockerConcurrency:  l.int("IA_AGENT_DOCKER_CONCURRENCY", 4),
 		DockerHost:         l.dockerHost(),
@@ -153,11 +163,22 @@ func (l lookup) int(name string, def int) int {
 }
 
 func (l lookup) bool(name string, def bool) bool {
-	b, err := strconv.ParseBool(l.get(name))
-	if err != nil {
+	b, ok := ParseSwitch(l.get(name))
+	if !ok {
 		return def
 	}
 	return b
+}
+
+// ParseSwitch reads an on/off value: true/false, 1/0, on/off or yes/no.
+func ParseSwitch(s string) (on, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "t", "true", "on", "yes", "y":
+		return true, true
+	case "0", "f", "false", "off", "no", "n":
+		return false, true
+	}
+	return false, false
 }
 
 // seconds accepts a bare number of seconds.

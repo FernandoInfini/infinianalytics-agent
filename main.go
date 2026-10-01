@@ -7,6 +7,9 @@
 //	infinianalytics-agent run                         run in the foreground (what the service runs)
 //	infinianalytics-agent status                      last push, spool size
 //	infinianalytics-agent uninstall | start | stop | version
+//
+// Host vitals are always sent. Disk space and Docker are modules, on by
+// default: --disks off / --docker off (or IA_AGENT_DISKS / IA_AGENT_DOCKER).
 package main
 
 import (
@@ -50,11 +53,19 @@ func main() {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	cfgPath := fs.String("config", "", "settings file (default: "+config.FileName+" next to the program, then "+filepath.Join(config.DefaultDir(), config.FileName)+")")
 	url := fs.String("url", "", "ingestion API base URL (enroll only; default "+defaultURL+")")
+	modules := map[string]string{}
+	fs.Var(moduleFlag{config.KeyDisks, modules}, "disks", "disk space readings: on or off")
+	fs.Var(moduleFlag{config.KeyDocker, modules}, "docker", "Docker containers and events: on or off")
 	fs.Usage = usage
 
 	switch cmd {
 	case "run":
 		fs.Parse(args)
+		// For this process only. The environment beats agent.env, so the
+		// flags win over both.
+		for key, value := range modules {
+			os.Setenv(key, value)
+		}
 		resourceDefaults()
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -68,15 +79,16 @@ func main() {
 			code = fs.Arg(0)
 		}
 		if code == "" {
-			fail(fmt.Errorf("usage: %s enroll <code> [--url URL]", exeName()))
+			fail(fmt.Errorf("usage: %s enroll <code> [--url URL] [--disks on|off] [--docker on|off]", exeName()))
 		}
-		enroll(code, *url, *cfgPath)
+		enroll(code, *url, *cfgPath, modules)
 	case "install":
 		fs.Parse(args)
 		cfg := config.Load(*cfgPath)
 		if !cfg.Enrolled() {
 			fail(fmt.Errorf("not enrolled yet: run `%s enroll <code>` first", exeName()))
 		}
+		saveModules(cfg.File, modules)
 		exe, err := os.Executable()
 		if err != nil {
 			fail(err)
@@ -133,7 +145,37 @@ func runAgent(cfgPath string) service.RunFunc {
 	}
 }
 
-func enroll(code, url, cfgPath string) {
+// moduleFlag is --disks / --docker. It takes a value, so both `--docker off`
+// and `--docker=off` work, and only switches given on the command line are
+// recorded.
+type moduleFlag struct {
+	key string
+	set map[string]string
+}
+
+func (f moduleFlag) String() string { return "" }
+
+func (f moduleFlag) Set(s string) error {
+	on, ok := config.ParseSwitch(s)
+	if !ok {
+		return fmt.Errorf("want on or off, got %q", s)
+	}
+	f.set[f.key] = fmt.Sprint(on)
+	return nil
+}
+
+// saveModules writes the switches given on the command line into agent.env,
+// where the service finds them.
+func saveModules(path string, modules map[string]string) {
+	if len(modules) == 0 {
+		return
+	}
+	if err := config.SaveValues(path, modules, []string{config.KeyDisks, config.KeyDocker}); err != nil {
+		fail(fmt.Errorf("could not save the module settings to %s: %w", path, err))
+	}
+}
+
+func enroll(code, url, cfgPath string, modules map[string]string) {
 	cfg := config.Load(cfgPath)
 	if url == "" {
 		url = cfg.URL
@@ -145,6 +187,7 @@ func enroll(code, url, cfgPath string) {
 	if err != nil {
 		fail(err)
 	}
+	saveModules(cfg.File, modules)
 	fmt.Printf("Enrolled as server %s.\nSettings saved to %s.\n", res.ServerID, cfg.File)
 	fmt.Printf("Next: `%s install` to run it as a service (or `%s run` to try it in the foreground).\n", exeName(), exeName())
 }
@@ -159,7 +202,7 @@ func status(cfg config.Config) {
 		fmt.Println("enrolled:   no")
 		return
 	}
-	fmt.Printf("server:     %s\nbackend:    %s\n", cfg.ServerID, cfg.URL)
+	fmt.Printf("server:     %s\nbackend:    %s\nmodules:    %s\n", cfg.ServerID, cfg.URL, agent.Modules(cfg))
 	dir := cfg.StateDir
 	if dir == "" {
 		dir = config.DefaultDir()
@@ -207,6 +250,13 @@ Usage:
   %s version
 
 Every command takes --config PATH (default: %s).
+
+Modules (host vitals are always sent; these are on by default):
+  --disks on|off                 disk space per filesystem
+  --docker on|off                Docker containers and events
+On enroll and install they are saved to the settings file, so the service
+keeps them; on run they apply to that run only. The same switches are
+IA_AGENT_DISKS and IA_AGENT_DOCKER in the environment or the settings file.
 `, n, version, n, n, n, n, n, n, filepath.Join(config.DefaultDir(), config.FileName))
 }
 

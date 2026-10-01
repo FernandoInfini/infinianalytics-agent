@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rene-roid/kanshi/internal/config"
 	"github.com/rene-roid/kanshi/internal/dockerstats"
+	"github.com/rene-roid/kanshi/internal/roots"
+	"github.com/rene-roid/kanshi/internal/vitals"
 )
 
 func TestContainerKeys(t *testing.T) {
@@ -168,6 +171,48 @@ func TestDockerEventTranslation(t *testing.T) {
 	}
 	if _, ok := d.translate(msg("exec_start", labels(nil))); ok {
 		t.Fatal("exec events are not lifecycle events")
+	}
+}
+
+func TestDisksModuleGatesFilesystemReadings(t *testing.T) {
+	for _, disks := range []bool{false, true} {
+		spool, err := OpenSpool(t.TempDir(), time.Hour, 1<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := &Agent{
+			cfg:    config.Config{DisksEnabled: disks, FilesystemInterval: time.Minute},
+			reader: vitals.New(roots.NewResolver([]string{"auto"}, "")),
+			spool:  spool,
+		}
+		w := &window{host: newHostWindow(time.Now(), 10*time.Second)}
+		if err := a.closeWindow(w, false); err != nil {
+			t.Fatal(err)
+		}
+		recs, _, err := spool.Peek(10)
+		spool.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := 0
+		for _, r := range recs {
+			got += len(r.Filesystems)
+		}
+		if disks && got == 0 {
+			t.Error("disks on: the window should carry filesystem rows")
+		}
+		if !disks && got != 0 {
+			t.Errorf("disks off: %d filesystem rows sent", got)
+		}
+	}
+}
+
+func TestModules(t *testing.T) {
+	if got := Modules(config.Config{DisksEnabled: true, DockerEnabled: true}); got != "host, disks, docker" {
+		t.Errorf("all on = %q", got)
+	}
+	if got := Modules(config.Config{}); got != "host" {
+		t.Errorf("all off = %q", got)
 	}
 }
 

@@ -88,6 +88,24 @@ func TestLoadPrecedence(t *testing.T) {
 	}
 }
 
+func TestModuleSwitches(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	os.WriteFile(path, []byte("IA_AGENT_DISKS=off\nIA_AGENT_DOCKER=no\n"), 0o600)
+	cfg := Load(path)
+	if cfg.DisksEnabled || cfg.DockerEnabled {
+		t.Errorf("off / no in the file: disks = %v, docker = %v", cfg.DisksEnabled, cfg.DockerEnabled)
+	}
+	t.Setenv(KeyDocker, "ON")
+	t.Setenv(KeyDisks, "maybe")
+	cfg = Load(path)
+	if !cfg.DockerEnabled {
+		t.Error("the environment should win over the file")
+	}
+	if !cfg.DisksEnabled {
+		t.Error("an unreadable value falls back to the default, on")
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	cfg := Load(filepath.Join(t.TempDir(), "missing.env"))
 	if cfg.FileLoaded {
@@ -101,6 +119,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if !cfg.DockerEnabled || cfg.ContainerLimit != 50 {
 		t.Errorf("docker = %v / %d", cfg.DockerEnabled, cfg.ContainerLimit)
+	}
+	if !cfg.DisksEnabled {
+		t.Error("disks should be on by default")
 	}
 	if len(cfg.FilesystemRoots) != 1 || cfg.FilesystemRoots[0] != "auto" {
 		t.Errorf("roots = %v", cfg.FilesystemRoots)
