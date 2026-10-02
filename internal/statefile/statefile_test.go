@@ -222,4 +222,36 @@ func TestWriteAsRoot(t *testing.T) {
 		t.Errorf("repaired file owned by %d, want 61234", got)
 	}
 	noTempFiles(t, dir)
+
+	// The way systemd lays it out: a root-owned link to the real directory.
+	link := filepath.Join(t.TempDir(), "infinianalytics-agent")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Lchown(link, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	spool := filepath.Join(dir, "spool")
+	if err := os.Mkdir(spool, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(path, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(link, "agent.env"), filepath.Join(link, "spool")} {
+		if _, err := Repair(p); err != nil {
+			t.Fatalf("Repair(%s): %v", p, err)
+		}
+	}
+	for _, p := range []string{path, spool} {
+		if uid, _, _ := fileOwner(p); uid != 61234 {
+			t.Errorf("through the link, %s was given to %d, want the real directory's owner 61234", p, uid)
+		}
+	}
+	if err := Write(filepath.Join(link, "stop_reason"), []byte("service\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if uid, _, _ := fileOwner(filepath.Join(dir, "stop_reason")); uid != 61234 {
+		t.Errorf("new file written through the link owned by %d, want 61234", uid)
+	}
 }

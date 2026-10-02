@@ -69,7 +69,11 @@ owned_by_service agent.env
 stays_up 25
 
 echo "--- 2. upgrade as root with --reset --disks off"
-installer --reset --disks off
+installer --reset --disks off | tee "$tmp/install.out"
+if grep -q "back to the service user" "$tmp/install.out"; then
+  echo "a healthy install had nothing to repair"
+  exit 1
+fi
 sudo grep -qx 'IA_AGENT_DISKS=false' "$state/agent.env"
 owned_by_service agent.env state.json
 stays_up 25
