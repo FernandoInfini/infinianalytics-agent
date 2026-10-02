@@ -114,7 +114,9 @@ func journalTail() string {
 }
 
 // Uninstall stops and removes the unit. The state directory (key, spool) is
-// kept; delete /var/lib/infinianalytics-agent to forget the server entirely.
+// kept. To forget the server entirely delete /var/lib/private/infinianalytics-agent
+// as well as /var/lib/infinianalytics-agent: with DynamicUser= the latter is
+// only systemd's link to the former.
 func Uninstall() error {
 	if os.Geteuid() != 0 {
 		return errors.New("uninstall needs root (sudo)")
