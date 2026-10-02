@@ -10,11 +10,15 @@
 package config
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rene-roid/kanshi/internal/statefile"
 )
 
 // Setting names written by `enroll`.
@@ -81,6 +85,9 @@ type Config struct {
 	// The agent.env that was loaded, or where `enroll` writes one.
 	File       string
 	FileLoaded bool
+	// Why File exists but could not be read, nil if it could (or is not
+	// there). Its settings are then missing from everything above.
+	FileErr error
 }
 
 // Enrolled reports whether the agent has an identity to push with.
@@ -95,8 +102,13 @@ func (c Config) Enrolled() bool {
 func Load(explicit string) Config {
 	path, loaded := findFile(explicit)
 	var file map[string]string
+	var fileErr error
 	if loaded {
-		file, _ = ReadFile(path)
+		if file, fileErr = ReadFile(path); fileErr != nil {
+			fileErr = statefile.ReadError(path, fileErr)
+		}
+	} else if _, err := os.Stat(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		fileErr = statefile.ReadError(path, err)
 	}
 	l := lookup{file: file}
 
@@ -125,6 +137,7 @@ func Load(explicit string) Config {
 		MachineID:          l.string(KeyMachineID, ""),
 		File:               path,
 		FileLoaded:         loaded,
+		FileErr:            fileErr,
 	}
 }
 

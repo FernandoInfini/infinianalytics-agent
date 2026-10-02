@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/rene-roid/kanshi/internal/statefile"
 )
 
 // FileName is the settings file. It uses the same KEY=VALUE format as a
@@ -82,7 +84,7 @@ func parseLine(line string) (key, value string, ok bool) {
 // the built-in default applies again. The file and its directory are created
 // if needed, the write goes through a rename so a crash cannot leave half a
 // file behind, and the result is readable by its owner only: it holds the
-// agent key.
+// agent key. Written as root, it stays the service user's (see statefile).
 func SaveValues(path string, values map[string]string, order []string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -116,27 +118,10 @@ func SaveValues(path string, values map[string]string, order []string) error {
 		}
 	}
 
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".agent-*.env")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil && !isWindows {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	if err := statefile.Write(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
 		return err
 	}
 	return restrict(path)

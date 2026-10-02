@@ -152,7 +152,22 @@ func Modules(cfg config.Config) string {
 	return out
 }
 
-func (a *Agent) spoolDir() string { return filepath.Join(a.cfg.StateDir, "spool") }
+func (a *Agent) spoolDir() string { return SpoolDir(a.cfg.StateDir) }
+
+// SpoolDir is where the spool lives in the state directory dir.
+func SpoolDir(dir string) string { return filepath.Join(dir, "spool") }
+
+// StateFiles is everything the agent keeps in the state directory dir besides
+// agent.env, for `install` to give back to the service user (see
+// statefile.Repair).
+func StateFiles(dir string) []string {
+	return []string{
+		filepath.Join(dir, stateFile),
+		filepath.Join(dir, stopReasonFile),
+		filepath.Join(dir, machineIDFile),
+		SpoolDir(dir),
+	}
+}
 
 // saveState persists a snapshot of the state taken under the lock.
 func (a *Agent) saveState() {

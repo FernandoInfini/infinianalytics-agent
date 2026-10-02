@@ -18,6 +18,7 @@ import (
 
 	"github.com/rene-roid/kanshi/internal/config"
 	"github.com/rene-roid/kanshi/internal/roots"
+	"github.com/rene-roid/kanshi/internal/statefile"
 	"github.com/rene-roid/kanshi/internal/vitals"
 )
 
@@ -50,6 +51,9 @@ func HostIdentity(memTotal uint64, hostRoot string) HostInfo {
 	}
 }
 
+// machineIDFile keeps a generated machine id in the state directory.
+const machineIDFile = "machine-id"
+
 // stableMachineID is the machine's own id, else one generated once and kept
 // in the state directory - a container with no view of the host's
 // /etc/machine-id still re-binds to the same server as long as its volume
@@ -67,7 +71,7 @@ func stableMachineID(cfg config.Config) (string, error) {
 	if dir == "" {
 		dir = filepath.Dir(cfg.File)
 	}
-	path := filepath.Join(dir, "machine-id")
+	path := filepath.Join(dir, machineIDFile)
 	if raw, err := os.ReadFile(path); err == nil {
 		if id := strings.TrimSpace(string(raw)); id != "" {
 			return id, nil
@@ -81,7 +85,7 @@ func stableMachineID(cfg config.Config) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, []byte(id+"\n"), 0o600); err != nil {
+	if err := statefile.Write(path, []byte(id+"\n"), 0o600); err != nil {
 		return "", fmt.Errorf("no machine id found and could not persist one in %s: %w", dir, err)
 	}
 	return id, nil

@@ -45,6 +45,24 @@ jobs:
         shell: bash
         run: scripts/smoke.sh
 
+  systemd:
+    name: Install as a systemd service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      - name: Write state files as root
+        run: |
+          go test -c -o statefile.test ./internal/statefile
+          sudo ./statefile.test -test.run TestWriteAsRoot -test.v
+
+      - name: Install, upgrade and repair with install.sh
+        run: scripts/systemd-test.sh
+
   image:
     name: Build image
     runs-on: ubuntu-latest

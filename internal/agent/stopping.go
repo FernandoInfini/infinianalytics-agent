@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/rene-roid/kanshi/internal/statefile"
 )
 
 const stopReasonFile = "stop_reason"
@@ -13,10 +15,10 @@ const stopReasonFile = "stop_reason"
 // the agent gets SIGTERM. The agent runs as a throwaway user whose systemctl
 // goes through D-Bus, often already gone by the time a reboot stops services;
 // root's talks to systemd directly. So ask here, and leave the answer in dir
-// for the agent to pick up.
+// for the agent to pick up - in a file the agent owns, like the rest of dir.
 func RecordStopReason(dir string) (string, error) {
 	reason := detectStopReason()
-	return reason, os.WriteFile(filepath.Join(dir, stopReasonFile), []byte(reason+"\n"), 0o644)
+	return reason, statefile.Write(filepath.Join(dir, stopReasonFile), []byte(reason+"\n"), 0o600)
 }
 
 // takeRecordedStopReason returns and removes what RecordStopReason left in

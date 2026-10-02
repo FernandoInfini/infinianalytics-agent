@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,5 +130,27 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.DockerHost != defaultDockerHost && os.Getenv("DOCKER_HOST") == "" {
 		t.Errorf("DockerHost = %q", cfg.DockerHost)
+	}
+}
+
+// An agent.env the agent may not read is not "not enrolled": that is how a
+// root-owned file looked to the service.
+func TestLoadUnreadableFile(t *testing.T) {
+	if isWindows || os.Geteuid() == 0 {
+		t.Skip("needs file modes that bind the user")
+	}
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte("IA_AGENT_SERVER_ID=sid\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Load(path)
+	if !errors.Is(cfg.FileErr, fs.ErrPermission) {
+		t.Fatalf("FileErr = %v, want a permission error", cfg.FileErr)
+	}
+	if want := "cannot read " + path + ": permission denied (owner "; !strings.HasPrefix(cfg.FileErr.Error(), want) {
+		t.Errorf("FileErr = %q, want it to start %q", cfg.FileErr, want)
+	}
+	if missing := Load(filepath.Join(t.TempDir(), FileName)); missing.FileErr != nil {
+		t.Errorf("a missing file is not an error: %v", missing.FileErr)
 	}
 }

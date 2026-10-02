@@ -16,8 +16,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,6 +32,7 @@ import (
 	"github.com/rene-roid/kanshi/internal/agent"
 	"github.com/rene-roid/kanshi/internal/config"
 	"github.com/rene-roid/kanshi/internal/service"
+	"github.com/rene-roid/kanshi/internal/statefile"
 )
 
 // version is stamped by the release build with -ldflags "-X main.version=…".
@@ -92,9 +95,11 @@ func main() {
 	case "install":
 		fs.Parse(args)
 		cfg := config.Load(*cfgPath)
+		must(cfg.FileErr)
 		if !cfg.Enrolled() {
 			fail(fmt.Errorf("not enrolled yet: run `%s enroll <code>` first", exeName()))
 		}
+		repairOwnership(cfg)
 		saveSettings(cfg.File, settings, *reset)
 		exe, err := os.Executable()
 		if err != nil {
@@ -138,6 +143,12 @@ func main() {
 func runAgent(cfgPath string) service.RunFunc {
 	return func(ctx context.Context, stopReason func() string) error {
 		cfg := config.Load(cfgPath)
+		if cfg.FileErr != nil {
+			if errors.Is(cfg.FileErr, fs.ErrPermission) {
+				return fmt.Errorf("%w; `sudo %s install` gives it back to the service", cfg.FileErr, exeName())
+			}
+			return cfg.FileErr
+		}
 		// The container image has no interactive step: a first start with
 		// IA_AGENT_ENROLL_CODE enrolls, later starts find agent.env in the
 		// state volume and ignore the (by then used) code.
@@ -223,8 +234,30 @@ func saveSettings(path string, settings map[string]string, reset bool) {
 	}
 }
 
+// repairOwnership gives agent.env and the agent's state back to the owner of
+// the directory holding them - the service user - where an earlier version,
+// run as root, left them root's and unreadable to the service. Done before
+// anything is written, as a rewrite keeps a file's owner.
+func repairOwnership(cfg config.Config) {
+	paths := []string{cfg.File}
+	if cfg.StateDir != "" {
+		paths = append(paths, agent.StateFiles(cfg.StateDir)...)
+	}
+	for _, p := range paths {
+		fixed, err := statefile.Repair(p)
+		if err != nil {
+			fail(fmt.Errorf("could not give %s back to the service user: %w", p, err))
+		}
+		if len(fixed) > 0 {
+			fmt.Printf("Gave %s back to the service user (it was unreadable to the service).\n", p)
+		}
+	}
+}
+
 func enroll(code, url, cfgPath, machineID string, settings map[string]string, reset bool) {
 	cfg := config.Load(cfgPath)
+	must(cfg.FileErr) // before the code is spent on an identity that could not be saved
+	repairOwnership(cfg)
 	if url == "" {
 		url = cfg.URL
 	}
@@ -255,6 +288,9 @@ func status(cfg config.Config) {
 		fmt.Print(" (not found)")
 	}
 	fmt.Println()
+	if cfg.FileErr != nil {
+		fmt.Printf("problem:    %v\n", cfg.FileErr)
+	}
 	if !cfg.Enrolled() {
 		fmt.Println("enrolled:   no")
 		return
@@ -281,7 +317,12 @@ func status(cfg config.Config) {
 			fmt.Printf("last ok:    %s ago\n", time.Since(st.LastSuccessAt).Round(time.Second))
 		}
 	}
-	if sp, err := agent.OpenSpool(filepath.Join(dir, "spool"), cfg.SpoolMaxAge, cfg.SpoolMaxBytes); err == nil {
+	// Not opened when missing: OpenSpool would create it, and `status` usually
+	// runs as root - a root-owned spool the service could not write to.
+	spool := agent.SpoolDir(dir)
+	if _, err := os.Stat(spool); err != nil {
+		fmt.Println("spool:      empty")
+	} else if sp, err := agent.OpenSpool(spool, cfg.SpoolMaxAge, cfg.SpoolMaxBytes); err == nil {
 		records, size, _ := sp.Pending()
 		sp.Close()
 		fmt.Printf("spool:      %d window(s) pending, %.1f KB\n", records, float64(size)/1024)
