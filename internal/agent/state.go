@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/rene-roid/kanshi/internal/statefile"
 )
 
 const stateFile = "state.json"
@@ -47,9 +49,5 @@ func (s State) Save(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp := filepath.Join(dir, stateFile+".tmp")
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filepath.Join(dir, stateFile))
+	return statefile.Write(filepath.Join(dir, stateFile), raw, 0o600)
 }

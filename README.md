@@ -90,14 +90,18 @@ it a "reinicio", but a shutdown and power-on reads the same way.
 
 ```sh
 infinianalytics-agent enroll XXXX-XXXX-XXXX --url https://api.analytics.infini.es
-sudo infinianalytics-agent install      # systemd unit / Windows service, enabled and started
+sudo infinianalytics-agent install      # systemd unit / Windows service, enabled, started and checked
 infinianalytics-agent status            # last push, pending spool
 ```
 
 `enroll` trades the code for this server's own key and saves it in `agent.env`
 (`/var/lib/infinianalytics-agent/` on Linux, `%ProgramData%\InfiniAnalytics Agent\` on
-Windows), readable only by root / SYSTEM and Administrators. Re-enrolling the same machine
-(same `/etc/machine-id` or `MachineGuid`) re-binds to the same server and keeps its history.
+Windows), readable only by the service and root / SYSTEM and Administrators. On Linux the
+service runs as a throwaway systemd user that owns that directory, and whatever `enroll` or
+`install` write there as root is given to it; `install` also gives back files older versions
+left owned by root, and fails, printing the last log lines, if the service does not stay up.
+Re-enrolling the same machine (same `/etc/machine-id` or `MachineGuid`) re-binds to the same
+server and keeps its history.
 
 ## Modules
 
@@ -188,6 +192,7 @@ The wire format is contract v1, specified as JSON Schema in the backend reposito
 go test ./...          # unit tests
 go vet ./... && GOOS=windows go vet ./...
 scripts/smoke.sh       # the real binary against a fake backend: pushes, a 503 outage, spool drain
+scripts/systemd-test.sh  # CI only (sudo, changes the machine): install.sh, upgrade, repair
 ```
 
 ## Project Structure
@@ -199,10 +204,11 @@ infinianalytics-agent/
 │   ├── agent/            # Windows, spool, push, Docker events, stop reasons
 │   ├── config/           # IA_AGENT_* settings and agent.env (fork-owned)
 │   ├── service/          # systemd unit / Windows service
+│   ├── statefile/        # state directory writes that keep the service user's ownership
 │   ├── vitals/           # CPU, memory, network, disk   ┐
 │   ├── dockerstats/      # container stats              ├ from kanshi, never edited here
 │   └── roots/            # filesystem discovery         ┘
-├── scripts/              # install.sh, install.ps1, smoke test + fake backend
+├── scripts/              # install.sh, install.ps1, smoke and systemd tests + fake backend
 ├── assets/               # icons
 └── Dockerfile            # container image
 ```
