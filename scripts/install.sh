@@ -5,25 +5,42 @@
 #   curl -fsSL <download>/install.sh | sudo sh -s -- --code XXXX-XXXX-XXXX --url https://api.analytics.infini.es
 #
 # Host vitals are always sent. Add --disks off and/or --docker off to leave
-# those modules out; the choice is saved in agent.env and kept on upgrades.
+# those modules out, and --set KEY=VALUE (repeatable) for any other adjustable
+# setting; they are saved in agent.env and kept on upgrades. --reset first puts
+# every adjustable setting not given back to its default, so a line with it
+# describes the whole configuration. --machine-id ID is for servers cloned from
+# one image (enroll only).
 #
-# Without --code it only upgrades the binary and restarts an already enrolled
-# agent. IA_AGENT_DOWNLOAD_URL overrides where binaries come from.
+# Without --code it only upgrades the binary, applies any settings given and
+# restarts an already enrolled agent - the dashboard's "Actualizar agente" and
+# "Configurar agente" lines. IA_AGENT_DOWNLOAD_URL overrides where binaries
+# come from.
 set -eu
 
 CODE=""
 URL="https://api.analytics.infini.es"
-MODULES=""
+MACHINE_ID=""
+# Arguments for `install`, one per line so a value may hold spaces.
+EXTRA=""
 BASE="${IA_AGENT_DOWNLOAD_URL:-https://github.com/InfiniWorkspace/infinianalytics-agent/releases/latest/download}"
 BIN=/usr/local/bin/infinianalytics-agent
 
 die() { echo "install: $*" >&2; exit 1; }
+add() {
+  case "$1" in *"
+"*) die "a setting cannot span lines" ;; esac
+  EXTRA="$EXTRA
+$1"
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --code) CODE="${2:-}"; shift 2 ;;
     --url) URL="${2:-}"; shift 2 ;;
-    --disks|--docker) MODULES="$MODULES $1=${2:-}"; shift 2 ;;
+    --disks|--docker) add "$1=${2:-}"; shift 2 ;;
+    --set) add "--set=${2:-}"; shift 2 ;;
+    --reset) add "--reset"; shift ;;
+    --machine-id) MACHINE_ID="${2:-}"; shift 2 ;;
     --download-url) BASE="${2:-}"; shift 2 ;;
     *) die "unknown option $1" ;;
   esac
@@ -58,9 +75,21 @@ fi
 install -m 755 "$tmp/$asset" "$BIN"
 
 if [ -n "$CODE" ]; then
-  "$BIN" enroll "$CODE" --url "$URL"
+  if [ -n "$MACHINE_ID" ]; then
+    "$BIN" enroll "$CODE" --url "$URL" --machine-id "$MACHINE_ID"
+  else
+    "$BIN" enroll "$CODE" --url "$URL"
+  fi
 fi
-# shellcheck disable=SC2086 # MODULES is a list of --flag=value words
-"$BIN" install $MODULES
+# Split EXTRA on newlines only (and without globbing) back into arguments.
+set -f
+old_ifs=$IFS
+IFS='
+'
+# shellcheck disable=SC2086 # split on purpose, see above
+set -- $EXTRA
+IFS=$old_ifs
+set +f
+"$BIN" install "$@"
 "$BIN" status || true
 echo "Done. Follow it with: journalctl -u infinianalytics-agent -f"

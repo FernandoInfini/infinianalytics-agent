@@ -78,10 +78,11 @@ func parseLine(line string) (key, value string, ok bool) {
 }
 
 // SaveValues sets the given keys in the file, keeping every other line -
-// comments included - exactly as it was. The file and its directory are
-// created if needed, the write goes through a rename so a crash cannot leave
-// half a file behind, and the result is readable by its owner only: it holds
-// the agent key.
+// comments included - exactly as it was. An empty value removes the key, so
+// the built-in default applies again. The file and its directory are created
+// if needed, the write goes through a rename so a crash cannot leave half a
+// file behind, and the result is readable by its owner only: it holds the
+// agent key.
 func SaveValues(path string, values map[string]string, order []string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -92,21 +93,25 @@ func SaveValues(path string, values map[string]string, order []string) error {
 		lines = strings.Split(strings.TrimRight(string(raw), "\r\n"), "\n")
 	}
 	replaced := map[string]bool{}
-	for i, line := range lines {
+	kept := lines[:0]
+	for _, line := range lines {
 		k, _, ok := parseLine(strings.TrimRight(line, "\r"))
 		v, wanted := values[k]
-		if !ok || !wanted {
-			continue
-		}
-		if !replaced[k] {
-			lines[i] = k + "=" + v
+		switch {
+		case !ok || !wanted:
+			kept = append(kept, line)
+		case v == "":
+			// Removed: the default applies again.
+		case !replaced[k]:
+			kept = append(kept, k+"="+v)
 			replaced[k] = true
-		} else {
-			lines[i] = "# " + line // a later duplicate would win; neutralise it
+		default:
+			kept = append(kept, "# "+line) // a later duplicate would win; neutralise it
 		}
 	}
+	lines = kept
 	for _, k := range order {
-		if v, ok := values[k]; ok && !replaced[k] {
+		if v, ok := values[k]; ok && v != "" && !replaced[k] {
 			lines = append(lines, k+"="+v)
 		}
 	}

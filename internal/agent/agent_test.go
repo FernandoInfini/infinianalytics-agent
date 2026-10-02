@@ -261,3 +261,19 @@ func TestBuildBatchMergesRecordsAndCarriesHostUntilDelivered(t *testing.T) {
 		t.Fatal("a change is sent right away")
 	}
 }
+
+func TestEffective(t *testing.T) {
+	cfg := config.Load(filepath.Join(t.TempDir(), "missing.env"))
+	got := Effective(cfg)
+	if !got.Disks || !got.Docker || got.ContainerLimit != 50 || got.DockerConcurrency != 4 ||
+		got.FSIntervalS != 60 || got.SpoolMaxAgeS != 172800 || got.SpoolMaxMB != 50 ||
+		got.DockerHost != "" || got.Container || len(got.FSRoots) != 1 || got.FSRoots[0] != "auto" {
+		t.Errorf("defaults = %+v", got)
+	}
+	t.Setenv("IA_AGENT_DOCKER_HOST", "tcp://10.0.0.5:2375")
+	t.Setenv("IA_AGENT_FS_INTERVAL", "90")
+	got = Effective(config.Load(filepath.Join(t.TempDir(), "missing.env")))
+	if got.DockerHost != "tcp://10.0.0.5:2375" || got.FSIntervalS != 90 {
+		t.Errorf("overrides = %+v", got)
+	}
+}
