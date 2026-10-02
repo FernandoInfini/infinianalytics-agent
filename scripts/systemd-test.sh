@@ -8,7 +8,9 @@
 #   3. the stop_reason root records on a stop is the service user's too;
 #   4. an agent.env left root-owned (what earlier versions did) makes `run`
 #      say so, and the next install repairs it;
-#   5. install fails, with the log, when the service does not stay up.
+#   5. install fails, with the log, when the service does not stay up;
+#   6. the dashboard's uninstall line forgets the server, and a reinstall with
+#      a new code comes up.
 # Needs systemd and passwordless sudo, and changes the machine: CI only.
 set -euo pipefail
 
@@ -113,6 +115,20 @@ grep -q "does not stay up" "$tmp/install.out"
 grep -q "not enrolled" "$tmp/install.out"
 sudo rm -r "$dropin"
 sudo "/usr/local/bin/$name" install
+stays_up 35
+
+echo "--- 6. the dashboard's uninstall line, then a reinstall with a new code"
+# Both paths: with DynamicUser= the first is only systemd's link to the
+# second. Removing the link alone leaves the key behind, and the reinstall's
+# fresh /var/lib/$name then stops systemd from making the link again
+# ("Failed to set up special execution directory in /var/lib: File exists").
+sudo sh -c "/usr/local/bin/$name uninstall; rm -rf /var/lib/$name /var/lib/private/$name"
+if sudo test -e "$state" || [ -e "/var/lib/$name" ]; then
+  echo "the uninstall line left the state directory behind"
+  exit 1
+fi
+installer --code SMOKE-CODE-0002 --url "http://127.0.0.1:$port"
+owned_by_service agent.env
 stays_up 35
 
 echo "systemd test passed"
