@@ -28,6 +28,25 @@ type HostInfo struct {
 	MemTotal  uint64 `json:"mem_total,omitempty"`
 }
 
+// AgentConfig is the configuration this agent actually runs with, sent next
+// to HostInfo so the dashboard can tell whether a settings change has been
+// applied on the machine.
+type AgentConfig struct {
+	Disks             bool     `json:"disks"`
+	Docker            bool     `json:"docker"`
+	FSRoots           []string `json:"fs_roots"`
+	FSIntervalS       int      `json:"fs_interval_s"`
+	ContainerLimit    int      `json:"container_limit"`
+	DockerConcurrency int      `json:"docker_concurrency"`
+	// Empty when the platform default (local socket / pipe) is in use.
+	DockerHost   string `json:"docker_host,omitempty"`
+	SpoolMaxAgeS int    `json:"spool_max_age_s"`
+	SpoolMaxMB   int    `json:"spool_max_mb"`
+	// True when the agent runs as the container image (it reads the host
+	// through IA_AGENT_HOST_ROOT).
+	Container bool `json:"container"`
+}
+
 // HostSample is one host window.
 type HostSample struct {
 	TS         time.Time `json:"ts"`
@@ -115,6 +134,7 @@ type Batch struct {
 	BootID        string          `json:"boot_id"`
 	SentAt        time.Time       `json:"sent_at"`
 	Host          *HostInfo       `json:"host,omitempty"`
+	Config        *AgentConfig    `json:"config,omitempty"`
 	Cores         []float64       `json:"cores,omitempty"`
 	Samples       []HostSample    `json:"samples"`
 	Filesystems   []FilesystemRow `json:"filesystems,omitempty"`

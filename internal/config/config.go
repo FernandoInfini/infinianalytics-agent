@@ -74,6 +74,10 @@ type Config struct {
 	// in a container. Empty on a normal install.
 	HostRoot string
 
+	// Overrides the machine id `enroll` reports, for machines cloned from
+	// one image. Empty = the machine's own.
+	MachineID string
+
 	// The agent.env that was loaded, or where `enroll` writes one.
 	File       string
 	FileLoaded bool
@@ -118,6 +122,7 @@ func Load(explicit string) Config {
 		DockerHost:         l.dockerHost(),
 		FilesystemRoots:    l.list("IA_AGENT_FS_ROOTS", "auto"),
 		HostRoot:           strings.TrimRight(l.string("IA_AGENT_HOST_ROOT", ""), `/\`),
+		MachineID:          l.string(KeyMachineID, ""),
 		File:               path,
 		FileLoaded:         loaded,
 	}
@@ -203,3 +208,7 @@ func (l lookup) list(name, def string) []string {
 	}
 	return out
 }
+
+// DockerHostIsDefault reports whether DockerHost is the platform's own
+// socket / pipe rather than an address someone configured.
+func (c Config) DockerHostIsDefault() bool { return c.DockerHost == defaultDockerHost }

@@ -122,7 +122,40 @@ environment, then `agent.env`, then the default (on).
 - **Docker image:** pass `-e IA_AGENT_DISKS=false` / `-e IA_AGENT_DOCKER=false`.
 - **By hand:** paste the settings into `agent.env` and restart the service.
 
-`infinianalytics-agent status` shows the active modules.
+`infinianalytics-agent status` shows the active modules and settings.
+
+## Changing Settings
+
+The modules and the settings marked adjustable in [Configuration](#configuration) can be
+changed on a running install without editing `agent.env`: `--set KEY=VALUE` (repeatable)
+writes one, an empty value removes it so the default applies again, and `--reset` puts every
+adjustable setting **not** given back to its default, so a line with `--reset` describes the
+whole configuration. `install` saves them and restarts the service, which makes running the
+installer again (without a code) the way to both update and reconfigure a server:
+
+```sh
+# Linux: upgrade to the latest release and apply the settings
+curl -fsSL https://github.com/InfiniWorkspace/infinianalytics-agent/releases/latest/download/install.sh \
+  | sudo sh -s -- --reset --docker off --set IA_AGENT_SPOOL_MAX_MB=200
+```
+
+```powershell
+# Windows, elevated
+& ([scriptblock]::Create((irm 'https://github.com/InfiniWorkspace/infinianalytics-agent/releases/latest/download/install.ps1'))) -Reset -Docker off -Set 'IA_AGENT_SPOOL_MAX_MB=200'
+```
+
+Without `--code` the scripts never enroll: they upgrade the binary, save what they were given
+and restart the service. The dashboard's **Configurar agente** and **Actualizar agente**
+dialogs print these lines for each server. The same flags work on the binary itself
+(`sudo infinianalytics-agent install --reset --set …`). The container image takes the same keys
+as `-e` variables; recreate the container to change them (the `/state` volume keeps the
+enrollment). An unknown key, or a value that does not parse, is refused before anything is
+written. Identity (`IA_AGENT_URL`, `IA_AGENT_SERVER_ID`, `IA_AGENT_KEY`) and paths cannot be set
+this way.
+
+For servers cloned from one image (same `/etc/machine-id`), give each its own id when
+enrolling: `--machine-id ID` on `enroll` and `install.sh`, `-MachineId ID` on `install.ps1`,
+`-e IA_AGENT_MACHINE_ID=ID` on the image. It is saved, so a later re-enroll keeps it.
 
 ## Configuration
 
@@ -130,20 +163,21 @@ Everything lives in **`agent.env`**, next to the key `enroll` wrote. Environment
 the same name take precedence over the file. All settings, with comments, are in
 [`agent.env.example`](agent.env.example).
 
-| Setting | Default | Purpose |
-|---|---|---|
-| `IA_AGENT_URL` / `IA_AGENT_SERVER_ID` / `IA_AGENT_KEY` | — | Identity, written by `enroll`. Keep the key secret. |
-| `IA_AGENT_SAMPLE_INTERVAL` | `2` | Seconds between vitals samples. |
-| `IA_AGENT_WINDOW` | `10` | Seconds per summarised window (and push). |
-| `IA_AGENT_FS_INTERVAL` | `60` | Seconds between filesystem readings. |
-| `IA_AGENT_SPOOL_MAX_AGE` / `IA_AGENT_SPOOL_MAX_MB` | `172800` / `50` | Undelivered data kept on disk, up to both limits. |
-| `IA_AGENT_DISKS` | `true` | Disk space module: filesystem readings and mount events. |
-| `IA_AGENT_DOCKER` | `true` | Docker module: container stats and the event stream. |
-| `IA_AGENT_CONTAINER_LIMIT` | `50` | Busiest containers sent per window. |
-| `IA_AGENT_DOCKER_HOST` | `DOCKER_HOST` | Docker endpoint, then the local socket / Docker Desktop pipe. |
-| `IA_AGENT_FS_ROOTS` | `auto` | `/` plus drives under `/mnt` (Linux), every fixed drive (Windows). Add `auto,/data,backups=/srv/backups`. |
-| `IA_AGENT_STATE_DIR` | `agent.env`'s folder | Where the spool and `state.json` live. |
-| `IA_AGENT_MACHINE_ID` | — | Only for machines cloned from one image that share `/etc/machine-id`. |
+| Setting | Default | Adjustable | Purpose |
+|---|---|---|---|
+| `IA_AGENT_URL` / `IA_AGENT_SERVER_ID` / `IA_AGENT_KEY` | — | | Identity, written by `enroll`. Keep the key secret. |
+| `IA_AGENT_SAMPLE_INTERVAL` | `2` | | Seconds between vitals samples. |
+| `IA_AGENT_WINDOW` | `10` | | Seconds per summarised window (and push). |
+| `IA_AGENT_FS_INTERVAL` | `60` | ✓ | Seconds between filesystem readings. |
+| `IA_AGENT_SPOOL_MAX_AGE` / `IA_AGENT_SPOOL_MAX_MB` | `172800` / `50` | ✓ | Undelivered data kept on disk, up to both limits. |
+| `IA_AGENT_DISKS` | `true` | ✓ | Disk space module: filesystem readings and mount events. |
+| `IA_AGENT_DOCKER` | `true` | ✓ | Docker module: container stats and the event stream. |
+| `IA_AGENT_CONTAINER_LIMIT` | `50` | ✓ | Busiest containers sent per window (`0` = all). |
+| `IA_AGENT_DOCKER_CONCURRENCY` | `4` | ✓ | Docker `/stats` calls in parallel per window. |
+| `IA_AGENT_DOCKER_HOST` | `DOCKER_HOST` | ✓ | Docker endpoint, then the local socket / Docker Desktop pipe. |
+| `IA_AGENT_FS_ROOTS` | `auto` | ✓ | `/` plus drives under `/mnt` (Linux), every fixed drive (Windows). Add `auto,/data,backups=/srv/backups`. |
+| `IA_AGENT_STATE_DIR` | `agent.env`'s folder | | Where the spool and `state.json` live. |
+| `IA_AGENT_MACHINE_ID` | — | `--machine-id` | Only for machines cloned from one image that share `/etc/machine-id`. |
 
 The wire format is contract v1, specified as JSON Schema in the backend repository
 (`infinianalytics-back-fastapi/docs/wire-v1.json`).

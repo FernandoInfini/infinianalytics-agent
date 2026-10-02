@@ -57,8 +57,8 @@ func HostIdentity(memTotal uint64, hostRoot string) HostInfo {
 func stableMachineID(cfg config.Config) (string, error) {
 	// Override for machines cloned from one image, which share
 	// /etc/machine-id and would otherwise all enroll as the same server.
-	if id := strings.TrimSpace(os.Getenv("IA_AGENT_MACHINE_ID")); id != "" {
-		return id, nil
+	if cfg.MachineID != "" {
+		return cfg.MachineID, nil
 	}
 	if id := machineID(cfg.HostRoot); id != "" {
 		return id, nil

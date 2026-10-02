@@ -444,6 +444,10 @@ func (a *Agent) buildBatch(recs []Record) Batch {
 	if a.host != a.hostSent || time.Since(a.hostSentAt) >= hostEvery {
 		host := a.host
 		b.Host = &host
+		// Fixed for the life of the process, so it rides along with the
+		// identity: on the first batch after a (re)start and hourly.
+		conf := Effective(a.cfg)
+		b.Config = &conf
 	}
 	return b
 }
@@ -478,4 +482,24 @@ func (a *Agent) recordPush(outcome Outcome, err error) {
 		a.state.LastSuccessAt = now
 		a.state.LastPushCode = 200
 	}
+}
+
+// Effective is the configuration the agent runs with, as reported to the
+// backend. Durations are whole seconds.
+func Effective(cfg config.Config) AgentConfig {
+	out := AgentConfig{
+		Disks:             cfg.DisksEnabled,
+		Docker:            cfg.DockerEnabled,
+		FSRoots:           append([]string{}, cfg.FilesystemRoots...),
+		FSIntervalS:       int(cfg.FilesystemInterval.Round(time.Second) / time.Second),
+		ContainerLimit:    cfg.ContainerLimit,
+		DockerConcurrency: cfg.DockerConcurrency,
+		SpoolMaxAgeS:      int(cfg.SpoolMaxAge.Round(time.Second) / time.Second),
+		SpoolMaxMB:        int(cfg.SpoolMaxBytes >> 20),
+		Container:         cfg.HostRoot != "",
+	}
+	if !cfg.DockerHostIsDefault() {
+		out.DockerHost = cfg.DockerHost
+	}
+	return out
 }

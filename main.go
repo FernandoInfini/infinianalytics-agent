@@ -3,13 +3,15 @@
 // why the machine went away when it does (reboot, shutdown, crash).
 //
 //	infinianalytics-agent enroll <code> [--url URL]   link this server (code from the dashboard)
-//	infinianalytics-agent install                     run it as a service (systemd / Windows)
+//	infinianalytics-agent install [--set KEY=VALUE]   run it as a service (systemd / Windows)
 //	infinianalytics-agent run                         run in the foreground (what the service runs)
 //	infinianalytics-agent status                      last push, spool size
 //	infinianalytics-agent uninstall | start | stop | version
 //
 // Host vitals are always sent. Disk space and Docker are modules, on by
 // default: --disks off / --docker off (or IA_AGENT_DISKS / IA_AGENT_DOCKER).
+// The other adjustable settings (config.Settings) go through --set KEY=VALUE;
+// --reset puts every one not given back to its default.
 package main
 
 import (
@@ -53,9 +55,12 @@ func main() {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	cfgPath := fs.String("config", "", "settings file (default: "+config.FileName+" next to the program, then "+filepath.Join(config.DefaultDir(), config.FileName)+")")
 	url := fs.String("url", "", "ingestion API base URL (enroll only; default "+defaultURL+")")
-	modules := map[string]string{}
-	fs.Var(moduleFlag{config.KeyDisks, modules}, "disks", "disk space readings: on or off")
-	fs.Var(moduleFlag{config.KeyDocker, modules}, "docker", "Docker containers and events: on or off")
+	settings := map[string]string{}
+	fs.Var(moduleFlag{config.KeyDisks, settings}, "disks", "disk space readings: on or off")
+	fs.Var(moduleFlag{config.KeyDocker, settings}, "docker", "Docker containers and events: on or off")
+	fs.Var(settingFlag(settings), "set", "adjustable setting KEY=VALUE, repeatable (an empty VALUE means the default)")
+	reset := fs.Bool("reset", false, "enroll / install: every adjustable setting not given goes back to its default")
+	machineID := fs.String("machine-id", "", "enroll only: machine id to report, for servers cloned from one image")
 	fs.Usage = usage
 
 	switch cmd {
@@ -63,8 +68,10 @@ func main() {
 		fs.Parse(args)
 		// For this process only. The environment beats agent.env, so the
 		// flags win over both.
-		for key, value := range modules {
-			os.Setenv(key, value)
+		for key, value := range settings {
+			if value != "" {
+				os.Setenv(key, value)
+			}
 		}
 		resourceDefaults()
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -79,16 +86,16 @@ func main() {
 			code = fs.Arg(0)
 		}
 		if code == "" {
-			fail(fmt.Errorf("usage: %s enroll <code> [--url URL] [--disks on|off] [--docker on|off]", exeName()))
+			fail(fmt.Errorf("usage: %s enroll <code> [--url URL] [--machine-id ID] [--set KEY=VALUE]...", exeName()))
 		}
-		enroll(code, *url, *cfgPath, modules)
+		enroll(code, *url, *cfgPath, *machineID, settings, *reset)
 	case "install":
 		fs.Parse(args)
 		cfg := config.Load(*cfgPath)
 		if !cfg.Enrolled() {
 			fail(fmt.Errorf("not enrolled yet: run `%s enroll <code>` first", exeName()))
 		}
-		saveModules(cfg.File, modules)
+		saveSettings(cfg.File, settings, *reset)
 		exe, err := os.Executable()
 		if err != nil {
 			fail(err)
@@ -174,18 +181,49 @@ func (f moduleFlag) Set(s string) error {
 	return nil
 }
 
-// saveModules writes the switches given on the command line into agent.env,
+// settingFlag is --set KEY=VALUE. Repeatable; each one is checked against
+// config.Settings as it is parsed, so a typo fails before anything changes.
+type settingFlag map[string]string
+
+func (f settingFlag) String() string { return "" }
+
+func (f settingFlag) Set(s string) error {
+	key, value, err := config.ParseSetting(s)
+	if err != nil {
+		return err
+	}
+	f[key] = value
+	return nil
+}
+
+// settingsToSave is what saveSettings writes: the given settings and, with
+// reset, every other adjustable one emptied (removed, so its default applies).
+func settingsToSave(settings map[string]string, reset bool) map[string]string {
+	out := map[string]string{}
+	if reset {
+		for _, key := range config.SettingKeys() {
+			out[key] = ""
+		}
+	}
+	for key, value := range settings {
+		out[key] = value
+	}
+	return out
+}
+
+// saveSettings writes the settings given on the command line into agent.env,
 // where the service finds them.
-func saveModules(path string, modules map[string]string) {
-	if len(modules) == 0 {
+func saveSettings(path string, settings map[string]string, reset bool) {
+	values := settingsToSave(settings, reset)
+	if len(values) == 0 {
 		return
 	}
-	if err := config.SaveValues(path, modules, []string{config.KeyDisks, config.KeyDocker}); err != nil {
-		fail(fmt.Errorf("could not save the module settings to %s: %w", path, err))
+	if err := config.SaveValues(path, values, config.SettingKeys()); err != nil {
+		fail(fmt.Errorf("could not save the settings to %s: %w", path, err))
 	}
 }
 
-func enroll(code, url, cfgPath string, modules map[string]string) {
+func enroll(code, url, cfgPath, machineID string, settings map[string]string, reset bool) {
 	cfg := config.Load(cfgPath)
 	if url == "" {
 		url = cfg.URL
@@ -193,11 +231,20 @@ func enroll(code, url, cfgPath string, modules map[string]string) {
 	if url == "" {
 		url = defaultURL
 	}
+	if machineID = strings.TrimSpace(machineID); machineID != "" {
+		cfg.MachineID = machineID
+	}
 	res, err := agent.Enroll(context.Background(), cfg, url, code, version)
 	if err != nil {
 		fail(err)
 	}
-	saveModules(cfg.File, modules)
+	if machineID != "" {
+		// Kept, so a later re-enroll of this clone reports the same id.
+		if err := config.SaveValues(cfg.File, map[string]string{config.KeyMachineID: machineID}, []string{config.KeyMachineID}); err != nil {
+			fail(fmt.Errorf("could not save the machine id to %s: %w", cfg.File, err))
+		}
+	}
+	saveSettings(cfg.File, settings, reset)
 	fmt.Printf("Enrolled as server %s.\nSettings saved to %s.\n", res.ServerID, cfg.File)
 	fmt.Printf("Next: `%s install` to run it as a service (or `%s run` to try it in the foreground).\n", exeName(), exeName())
 }
@@ -213,6 +260,7 @@ func status(cfg config.Config) {
 		return
 	}
 	fmt.Printf("server:     %s\nbackend:    %s\nmodules:    %s\n", cfg.ServerID, cfg.URL, agent.Modules(cfg))
+	fmt.Printf("settings:   %s\n", describeSettings(cfg))
 	dir := cfg.StateDir
 	if dir == "" {
 		dir = config.DefaultDir()
@@ -240,6 +288,23 @@ func status(cfg config.Config) {
 	}
 }
 
+// describeSettings is the adjustable settings in effect, on one line.
+func describeSettings(cfg config.Config) string {
+	parts := []string{}
+	if cfg.DisksEnabled {
+		parts = append(parts, fmt.Sprintf("filesystems %s every %s", strings.Join(cfg.FilesystemRoots, ","), cfg.FilesystemInterval))
+	}
+	if cfg.DockerEnabled {
+		limit := "all"
+		if cfg.ContainerLimit > 0 {
+			limit = fmt.Sprint(cfg.ContainerLimit)
+		}
+		parts = append(parts, fmt.Sprintf("containers %s via %s (%d in parallel)", limit, cfg.DockerHost, cfg.DockerConcurrency))
+	}
+	parts = append(parts, fmt.Sprintf("spool %s / %d MB", cfg.SpoolMaxAge, cfg.SpoolMaxBytes>>20))
+	return strings.Join(parts, "; ")
+}
+
 func firstArg(args []string) (string, []string) {
 	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
 		return args[0], args[1:]
@@ -252,8 +317,10 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `%s %s - InfiniAnalytics server agent
 
 Usage:
-  %s enroll <code> [--url URL]   link this server using a code from the dashboard
-  %s install                     install and start the service (root / administrator)
+  %s enroll <code> [--url URL] [--machine-id ID]
+                                 link this server using a code from the dashboard
+  %s install                     install and start the service (root / administrator);
+                                 run it again to apply new settings
   %s run                         run in the foreground
   %s status                      last push and pending spool
   %s uninstall | start | stop    manage the service
@@ -264,10 +331,17 @@ Every command takes --config PATH (default: %s).
 Modules (host vitals are always sent; these are on by default):
   --disks on|off                 disk space per filesystem
   --docker on|off                Docker containers and events
-On enroll and install they are saved to the settings file, so the service
-keeps them; on run they apply to that run only. The same switches are
-IA_AGENT_DISKS and IA_AGENT_DOCKER in the environment or the settings file.
-`, n, version, n, n, n, n, n, n, filepath.Join(config.DefaultDir(), config.FileName))
+The same switches are IA_AGENT_DISKS and IA_AGENT_DOCKER.
+
+Settings:
+  --set KEY=VALUE                repeatable; an empty VALUE means the default.
+                                 KEY is one of:
+                                   %s
+  --reset                        enroll / install: every setting not given goes
+                                 back to its default
+On enroll and install, modules and settings are saved to the settings file so
+the service keeps them; on run they apply to that run only.
+`, n, version, n, n, n, n, n, n, filepath.Join(config.DefaultDir(), config.FileName), strings.Join(config.SettingKeys(), "\n                                   "))
 }
 
 func exeName() string { return filepath.Base(os.Args[0]) }

@@ -5,14 +5,23 @@
 #   & ([scriptblock]::Create((irm '<download>/install.ps1'))) -Code 'XXXX-XXXX-XXXX' -Url 'https://api.analytics.infini.es'
 #
 # Host vitals are always sent. Add -Disks off and/or -Docker off to leave those
-# modules out; the choice is saved in agent.env and kept on upgrades.
+# modules out, and -Set 'KEY=VALUE','KEY=VALUE' for any other adjustable
+# setting; they are saved in agent.env and kept on upgrades. -Reset first puts
+# every adjustable setting not given back to its default, so a line with it
+# describes the whole configuration. -MachineId is for servers cloned from one
+# image (enroll only).
 #
-# Without -Code it only upgrades the binary and restarts an already enrolled agent.
+# Without -Code it only upgrades the binary, applies any settings given and
+# restarts an already enrolled agent - the dashboard's "Actualizar agente" and
+# "Configurar agente" lines.
 param(
     [string]$Code = "",
     [string]$Url = "https://api.analytics.infini.es",
     [ValidateSet("", "on", "off")][string]$Disks = "",
     [ValidateSet("", "on", "off")][string]$Docker = "",
+    [string[]]$Set = @(),
+    [switch]$Reset,
+    [string]$MachineId = "",
     [string]$DownloadUrl = "https://github.com/InfiniWorkspace/infinianalytics-agent/releases/latest/download"
 )
 $ErrorActionPreference = "Stop"
@@ -47,11 +56,18 @@ $svc = Get-Service -Name "infinianalytics-agent" -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -eq "Running") { Stop-Service -Name "infinianalytics-agent" -Force }
 Move-Item -Force $tmp $exe
 
-if ($Code) { & $exe enroll $Code --url $Url; if ($LASTEXITCODE -ne 0) { throw "Enrollment failed" } }
-$modules = @()
-if ($Disks) { $modules += "--disks=$Disks" }
-if ($Docker) { $modules += "--docker=$Docker" }
-& $exe install @modules
+if ($Code) {
+    $enroll = @("enroll", $Code, "--url", $Url)
+    if ($MachineId) { $enroll += "--machine-id=$MachineId" }
+    & $exe @enroll
+    if ($LASTEXITCODE -ne 0) { throw "Enrollment failed" }
+}
+$extra = @()
+if ($Disks) { $extra += "--disks=$Disks" }
+if ($Docker) { $extra += "--docker=$Docker" }
+foreach ($kv in $Set) { $extra += "--set=$kv" }
+if ($Reset) { $extra += "--reset" }
+& $exe install @extra
 if ($LASTEXITCODE -ne 0) { throw "Service installation failed" }
 & $exe status
 Write-Host "Done. The agent runs as the 'InfiniAnalytics Agent' service."
