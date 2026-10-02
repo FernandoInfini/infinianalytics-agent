@@ -53,7 +53,9 @@ owned_by_service() {
     [ "$got" = "$want" ] || { echo "$f is owned by $got, want $want (the state directory's)"; return 1; }
   done
 }
-# Pushing, with one process and no restart, for $1 seconds.
+# Pushing, with one process and no restart, for $1 seconds. After a start the
+# first window closes on the next 10 s boundary and the push loop runs on its
+# own 10 s timer, so the first push can take ~30 s.
 stays_up() {
   local pid before
   pid=$(prop MainPID) before=$(batches)
@@ -66,7 +68,7 @@ stays_up() {
 echo "--- 1. fresh install"
 installer --code SMOKE-CODE-0001 --url "http://127.0.0.1:$port"
 owned_by_service agent.env
-stays_up 25
+stays_up 35
 
 echo "--- 2. upgrade as root with --reset --disks off"
 installer --reset --disks off | tee "$tmp/install.out"
@@ -76,7 +78,7 @@ if grep -q "back to the service user" "$tmp/install.out"; then
 fi
 sudo grep -qx 'IA_AGENT_DISKS=false' "$state/agent.env"
 owned_by_service agent.env state.json
-stays_up 25
+stays_up 35
 
 echo "--- 3. stop_reason belongs to the service"
 # The unit's ExecStop, as root. Run by hand: on a real stop the agent picks
@@ -95,7 +97,7 @@ grep -q "cannot read /var/lib/$name/agent.env: permission denied (owner root, ru
 installer | tee "$tmp/install.out"
 grep -q "back to the service user" "$tmp/install.out"
 owned_by_service agent.env
-stays_up 15
+stays_up 35
 
 echo "--- 5. install fails when the service does not stay up"
 dropin=/etc/systemd/system/$name.service.d
@@ -111,6 +113,6 @@ grep -q "does not stay up" "$tmp/install.out"
 grep -q "not enrolled" "$tmp/install.out"
 sudo rm -r "$dropin"
 sudo "/usr/local/bin/$name" install
-stays_up 15
+stays_up 35
 
 echo "systemd test passed"
